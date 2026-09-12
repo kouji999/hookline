@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+tools/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+backend/.env
+backend/cookies.txt
+backend/exports/
+backend/temp/
