@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { Clip } from '../types'
 import { fmt, fmtRange } from '../lib/time'
 import { useI18n } from '../i18n'
@@ -24,7 +25,7 @@ export function ClipCard({ clip, rank, onPlay, onCopy, onStudio }: { clip: Clip;
       </header>
       <div className="score-row" title={`attention score ${pct}%`}>
         <div className="score-track" role="img" aria-label={`score ${pct} percent`}>
-          <div className="score-fill" style={{ width: `${pct}%` }} />
+          <div className="score-fill" style={{ '--fill': `${pct}%` } as CSSProperties} />
         </div>
         <span className="score-num mono">{pct}</span>
       </div>

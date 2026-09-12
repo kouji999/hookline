@@ -14,6 +14,7 @@ const ORDER: StageKey[] = ['resolve', 'transcript', 'signal', 'analyze']
 export function Pipeline({ stages }: { stages: Record<StageKey, StageState> }) {
   const { tr } = useI18n()
   const anyActive = ORDER.some((k) => stages[k].status === 'active' || stages[k].status === 'retry')
+  const idle = ORDER.every((k) => stages[k].status === 'wait')
 
   return (
     <section className="pipeline" aria-label={tr('stages.title')} aria-live="polite">
@@ -27,13 +28,19 @@ export function Pipeline({ stages }: { stages: Record<StageKey, StageState> }) {
                 {s.status === 'done' ? <IconCheck /> : s.status === 'fail' ? <IconAlert /> : s.status === 'active' || s.status === 'retry' ? <IconSpinner /> : <span className="dash" />}
               </span>
               <span className="stage-label">
-                {String(i + 1).padStart(2, '0')} {tr(`stages.${k}`)}
+                <span className="stage-num mono">{String(i + 1).padStart(2, '0')}</span> {tr(`stages.${k}`)}
               </span>
               <span className={`stage-detail mono${anyActive && s.status === 'active' ? ' shimmer' : ''}`}>{s.detail ?? ''}</span>
             </li>
           )
         })}
       </ol>
+      {idle && (
+        <div className="idle-signal">
+          <span className="idle-dot" aria-hidden="true" />
+          <span className="idle-text">{tr('idle.signal')}</span>
+        </div>
+      )}
     </section>
   )
 }

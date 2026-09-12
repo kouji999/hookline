@@ -1,6 +1,6 @@
-# REWATCH
+# HOOKLINE
 
-> **AI Attention Signal Console + 9:16 Clip Studio** — temukan momen paling banyak di-rewatch di video YouTube mana pun, lalu render jadi viral clips vertikal. Dibangun oleh **Raliq Hidayat BM3**.
+> **Viral moment intelligence for YouTube creators.** Find the moments viewers re-watch most, understand why with Gemini AI, and render ready-to-post vertical clips — in one console. Built by **Raliq Hidayat BM3**.
 
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://react.dev/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-active-green.svg)](https://fastapi.tiangolo.com/)
@@ -8,25 +8,26 @@
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-flash_chain-orange.svg)](https://aistudio.google.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Apa bedanya dengan AI clipper lain
+## Why it's different
 
-Kebanyakan tool cuma membaca kata-kata (transcript). Rewatch pakai **dua sinyal sekaligus**, lalu bisa langsung **memproduksi video**:
+Most AI clippers read words. Hookline reads **behavior**:
 
 ```
-URL YouTube
+YouTube URL
   ├─ SIGNAL 1: attention curve
-  │    ├─ probe most-replayed markers asli dari player YouTube (innertube)
-  │    └─ fallback: AI attention estimate dari densitas transcript (ber-badge, jujur)
-  ├─ SIGNAL 2: transcript (youtube-transcript-api / manual SRT / teks)
+  │    ├─ real most-replayed markers probed from the YouTube player (innertube)
+  │    └─ honest fallback: AI attention estimate, clearly badged
+  ├─ SIGNAL 2: transcript (youtube-transcript-api / manual SRT / plain text)
   ↓
-  Gemini dynamic model discovery (list key-specific models, newest Flash first; fallback chain 3.6 → 2.5 → 2.0 → 1.5) — prompt berbobot sinyal
+  Gemini analysis with dynamic model discovery (newest Flash your key can use)
   ↓
-  SSE stream: resolve → transcript → signal → analyze → done
+  Live SSE pipeline: resolve → transcript → signal → analyze → done
   ↓
-  v1 Dashboard: heatmap canvas + ranked clips + preview player + copy 3 format + history
+  Console: interactive retention heatmap, ranked moments, preview player,
+  three timestamp formats, local history
   ↓
-  v2 Clip Studio: slice 9:16/1:1/4:3 + karaoke ASS captions + face tracking
-     + NVENC GPU render + batch queue + ZIP export + cookies manager + raw downloader
+  Clip Studio: 9:16 / 1:1 / 4:3 / 16:9 framing, karaoke ASS captions (7 presets),
+  OpenCV face tracking, NVENC batch rendering, one-click ZIP, cookies manager
 ```
 
 ## Tech Stack
@@ -36,99 +37,72 @@ URL YouTube
 | Frontend | React 19, TypeScript, Vite, Canvas API, vanilla CSS design tokens |
 | Backend | Python 3.10+, FastAPI, Uvicorn, SSE streaming |
 | Signal | innertube probe (best-effort), AI estimate fallback |
-| Transcript | youtube-transcript-api + parser SRT/teks manual |
+| Transcript | youtube-transcript-api + SRT/plain-text parser |
 | AI | google-genai SDK, dynamic model discovery + fallback chain |
-| Render | FFmpeg (x264 + NVENC auto-fallback), libass karaoke captions, OpenCV face tracking, yt-dlp |
-| Storage | localStorage (history, key, preferensi studio) |
+| Render | FFmpeg (NVENC with x264 fallback), libass karaoke, OpenCV, yt-dlp |
+| Storage | localStorage (history, key, preferences) — nothing leaves your machine |
 
 ## Quick Start
 
 ### Prerequisites
-- Git, Node.js v18+, Python v3.10+
-- FFmpeg: taruh di `tools/ffmpeg/bin/` (auto-detect), atau system PATH, atau set `REWATCH_FFMPEG`
-- Opsional: GPU NVIDIA untuk NVENC (auto-fallback ke CPU), OpenCV untuk face tracking
+Git · Node.js v18+ · Python v3.10+ · FFmpeg (drop binaries into `tools/ffmpeg/bin/`, or install to PATH, or set `HOOKLINE_FFMPEG`)
 
-### Install
+### Install & run
 
 ```bash
-git clone <repo-url> && cd rewatch
+git clone https://github.com/kouji999/hookline.git && cd hookline
 npm install
 python -m pip install -r backend/requirements.txt
-```
-
-### Run
-
-```bash
 npm run dev
 ```
 
 Frontend `http://localhost:5173` · Backend `http://localhost:8000` · Swagger `http://localhost:8000/docs`
 
-## Cara Pakai
+### Workflow
 
-### 1. Analisis
-1. Paste URL YouTube (watch / youtu.be / shorts / embed / 11-char ID).
-2. Isi **Gemini API key** gratis dari [Google AI Studio](https://aistudio.google.com/) — tanpa kartu kredit. Atau ketik `mock` untuk **sandbox mode** tanpa key.
-3. Pilih durasi klip (15/30/60s), jumlah klip, opsional focus prompt ("cari momen lucu", "tips trading").
-4. Klik **Analyze signals** → progress per-tahap live.
-5. Hasil: heatmap interaktif (klik = seek), clip cards terurut skor atensi, copy timestamp 3 format (polos / +judul / YouTube chapters), history lokal persist.
-
-### 2. Clip Studio (render)
-1. Dari hasil analisis, klik **Studio** di clip card mana pun.
-2. Atur: aspect (9:16/1:1/4:3/16:9 + backdrop), layout (fullscreen/split/pip), face tracking, preset caption karaoke (7 gaya viral), posisi caption, NVENC.
-3. Pilih klip (checkbox) → **Render selection** atau **Render all** → monitor queue real-time → **Download ZIP**.
-4. Tools ekstra: cookies manager (anti-bot YouTube), raw video downloader, temp cache cleaner.
-
-### Sandbox render
-Tanpa download YouTube: render pakai sumber sintetis lokal (testsrc2). Ketik `mock` di API key, buka Studio, render — pipeline penuh tetap jalan (crop + karaoke + encode).
+1. **Analyze** — paste a YouTube URL, add your free [Google AI Studio](https://aistudio.google.com/) key (or `mock` for sandbox), pick clip length, run.
+2. **Review** — click the heatmap to seek, scan ranked moments, copy timestamps as plain ranges, titled notes, or ready-made YouTube chapters.
+3. **Render** — open any moment in the Clip Studio, choose framing/caption preset, batch render, download the ZIP.
+4. **Revisit** — everything is stored locally: search, reload past analyses without burning quota.
 
 ## API
 
-| Endpoint | Fungsi |
+| Endpoint | Purpose |
 |---|---|
-| `GET /api/health` | status + versi |
-| `GET /api/capabilities` | deteksi ffmpeg/nvenc/opencv + daftar preset |
-| `GET /api/video-title?video_id=` | oEmbed title |
-| `POST /api/analyze` | SSE pipeline analisis |
-| `POST /api/render-batch` | mulai render job (batch) |
-| `GET /api/render-progress/{id}` | poll progress job |
-| `GET /api/download-batch-zip/{id}` | unduh ZIP hasil render |
-| `GET /api/clip-frame?video_id=&t=` | frame JPEG untuk preview framing |
-| `POST/GET/DELETE /api/cookies` | cookies manager |
-| `POST /api/download-raw-video` | unduh video mentah |
-| `GET /api/temp-storage-info` + `POST /api/clear-temp` | cache management |
+| `GET /api/health` · `GET /api/capabilities` | status, render-engine detection |
+| `GET /api/video-title?video_id=` | oEmbed metadata |
+| `POST /api/analyze` | SSE analysis pipeline |
+| `POST /api/render-batch` · `GET /api/render-progress/{id}` | batch render + live queue |
+| `GET /api/download-batch-zip/{id}` · `GET /api/download-rendered/{file}` | exports |
+| `GET /api/clip-frame?video_id=&t=` | real frame for framing preview |
+| `GET/POST/DELETE /api/cookies` | YouTube cookies manager |
+| `POST /api/download-raw-video` | raw source downloader |
+| `GET /api/temp-storage-info` · `POST /api/clear-temp` | cache maintenance |
 
 ## Commands
 
-| Command | Fungsi |
+| Command | Purpose |
 |---|---|
 | `npm run dev` | Vite + FastAPI concurrently |
-| `npm run build` | tsc + vite build produksi |
-| `npm run preview` | preview build |
-| `npm run test` | semua test (vitest + pytest) |
-| `npm run test:frontend` | unit test frontend (vitest, 7 test) |
-| `npm run test:backend` | unit test backend (pytest, 29 test) |
-
-## Testing
-
-- **Backend (`backend/tests/test_units.py`)**: 29 unit test pytest — video id parsing, SRT/plain transcript parsing, sanitize caption, signal estimates, Gemini prompt + JSON parsing (fenced/unfenced/invalid), clip scoring, mock data, aspect/preset tables, crop filter math, ASS generation (BOM guard, brace escaping, relative path), cookies lifecycle.
-- **Frontend (`src/lib/__tests__/time.test.ts`)**: 7 unit test vitest — URL parsing, format waktu (m:ss → h:mm:ss), 3 format copy (plain/titled/chapters, sort correctness).
-- **E2E (Playwright, script pribadi)**: mock flow penuh, studio render → ZIP, error path (invalid URL, invalid key), mobile 375px, zero console error.
+| `npm run build` / `npm run preview` | production build / preview |
+| `npm test` | full suite (vitest + pytest) |
+| `npm run test:frontend` | 7 unit tests (time/format lib) |
+| `npm run test:backend` | 29 unit tests (parsing, ASS, scoring, cookies) |
 
 ## Troubleshooting
 
-- **FFmpeg not found** → chip merah di Studio. Taruh binary di `tools/ffmpeg/bin/` atau install ke PATH, restart backend.
-- **transcript unavailable** → subtitle video mati: paste transcript manual (SRT/teks) di panel opsi.
-- **429 quota** → fallback chain otomatis coba semua model Flash; ganti key dari akun Google lain.
-- **render failed (ass)** → pastikan font Arial tersedia (bawaan Windows). Di Linux install `fonts-liberation`.
-- **YouTube bot check saat download** → paste cookies Netscape di Studio → Cookies.
-- **port bentrok** → 5173/8000 dipakai proses lama: tutup via Task Manager, atau ubah port di `vite.config.ts` / perintah uvicorn.
+- **FFmpeg chip red in Studio** → binaries missing; see Prerequisites, then restart backend.
+- **No transcript** → captions disabled on that video; paste SRT/text manually in the options panel.
+- **429 quota** → the fallback chain rotates Flash models automatically; or create a second free key.
+- **YouTube bot check on download** → paste Netscape cookies in Studio → Cookies.
+- **Port in use** → close stale `node`/`python` processes or change ports in `vite.config.ts` / uvicorn command.
 
 ## Roadmap
 
-- [x] v1: analyzer — signal + AI + heatmap + copy 3 format + history
-- [x] v2: Clip Studio — 9:16 render, karaoke ASS, face tracking, NVENC, batch + ZIP, cookies, raw downloader
-- [ ] v3: Whisper fallback, moving face-track crop (sendcmd timeline), proxy field, export preset edit Premiere/Resolve
+- [x] v1 — attention-signal analyzer: heatmap, ranked moments, timestamps, history
+- [x] v2 — Clip Studio: vertical rendering, karaoke captions, face tracking, batch + ZIP
+- [x] v2.1 — dynamic Gemini model discovery (verified live on gemini-3.8-flash)
+- [ ] v3 — moving face-track timeline, Whisper fallback, Premiere/Resolve export presets
 
 ## License
 

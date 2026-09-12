@@ -1,4 +1,4 @@
-"""Rewatch v2 render engine: yt-dlp download, FFmpeg slice, face tracking, ASS karaoke captions, batch render, ZIP export, cookies, temp cleanup.
+"""Hookline v2 render engine: yt-dlp download, FFmpeg slice, face tracking, ASS karaoke captions, batch render, ZIP export, cookies, temp cleanup.
 
 All FFmpeg/yt-dlp calls run in threads (FastAPI BackgroundTasks / to_thread).
 Exports land in backend/exports, scratch in backend/temp.
@@ -41,8 +41,8 @@ def _resolve_tool(name: str, env_key: str) -> str:
     return name
 
 
-FFMPEG = _resolve_tool("ffmpeg", "REWATCH_FFMPEG")
-FFPROBE = _resolve_tool("ffprobe", "REWATCH_FFPROBE")
+FFMPEG = _resolve_tool("ffmpeg", "HOOKLINE_FFMPEG")
+FFPROBE = _resolve_tool("ffprobe", "HOOKLINE_FFPROBE")
 
 TEMP.mkdir(exist_ok=True)
 EXPORTS.mkdir(exist_ok=True)
@@ -212,7 +212,7 @@ def build_ass(subs: list[dict], preset: str, video_h: int, margin_v: int) -> str
     outline = _ass_color(p["outline"])
     fontsize = max(30, int(p["size"] * video_h / 1920))
     header = f"""[Script Info]
-Title: rewatch karaoke
+Title: hookline karaoke
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: {video_h}
@@ -430,7 +430,7 @@ def build_zip(job_id: str) -> Path | None:
     files = [Path(i["file"]) for i in j["items"] if i["file"] and Path(i["file"]).exists()]
     if not files:
         return None
-    zp = EXPORTS / f"rewatch_{job_id}.zip"
+    zp = EXPORTS / f"hookline_{job_id}.zip"
     with zipfile.ZipFile(zp, "w", zipfile.ZIP_STORED) as zf:
         for f in files:
             zf.write(f, f.name)

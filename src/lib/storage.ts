@@ -1,10 +1,10 @@
 import type { AnalysisResult, HistoryEntry, RenderOpts } from '../types'
 
-const K_HISTORY = 'rewatch.history.v1'
-const K_LANG = 'rewatch.lang'
-const K_KEY = 'rewatch.key'
-const K_CFG = 'rewatch.cfg.v1'
-const R_PREFIX = 'rewatch.result.'
+const K_HISTORY = 'hookline.history.v1'
+const K_LANG = 'hookline.lang'
+const K_KEY = 'hookline.key'
+const K_CFG = 'hookline.cfg.v1'
+const R_PREFIX = 'hookline.result.'
 
 export function loadHistory(): HistoryEntry[] {
   try {
@@ -80,7 +80,7 @@ export function saveCfg(c: { duration: string; clipCount: number; showPlayer: bo
   }
 }
 
-const K_STUDIO = 'rewatch.studio.v1'
+const K_STUDIO = 'hookline.studio.v1'
 
 export function loadStudio(sandboxDefault: boolean): RenderOpts {
   const fallback: RenderOpts = {

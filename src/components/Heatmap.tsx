@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Clip, HeatPoint } from '../types'
 import { fmt } from '../lib/time'
+import { useI18n } from '../i18n'
 
 interface Hover {
   x: number
@@ -19,6 +20,7 @@ export function Heatmap({
   clips: Clip[]
   onSeek: (t: number) => void
 }) {
+  const { tr } = useI18n()
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ w: 0, h: 132 })
@@ -144,9 +146,23 @@ export function Heatmap({
 
   return (
     <div className="heatmap-wrap">
+      <div className="heat-head">
+        <h3 className="section-title">{tr('heat.title')}</h3>
+        <span className="heat-legend mono">{tr('heat.hint')}</span>
+      </div>
       <div
         ref={wrapRef}
         className="heatmap"
+        role="button"
+        tabIndex={0}
+        aria-label={`${tr('heat.title')}. ${tr('heat.hint')}`}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            const best = clips[0]
+            if (best) onSeek(best.start)
+          }
+        }}
         onMouseMove={handleMove}
         onMouseLeave={() => setHover(null)}
         onClick={(e) => {

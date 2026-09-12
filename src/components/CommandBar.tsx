@@ -136,7 +136,7 @@ export function CommandBar({
             {tr('cmd.run')}
           </button>
         )}
-        <span className="hint">{tr('cmd.apikey.placeholder')}</span>
+        <span className="hint">{tr('cmd.hint')}</span>
       </div>
     </form>
   )

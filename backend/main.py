@@ -1,4 +1,4 @@
-"""Rewatch backend: FastAPI + SSE analyze pipeline.
+"""Hookline backend: FastAPI + SSE analyze pipeline.
 
 Endpoints:
   GET  /api/health
@@ -25,7 +25,7 @@ from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFoun
 
 import video_engine as ve
 
-app = FastAPI(title="rewatch", version="1.0.0")
+app = FastAPI(title="hookline", version="1.0.0")
 
 YT_OEMBED = "https://www.youtube.com/oembed"
 import os
@@ -39,7 +39,7 @@ def innertube_key() -> str | None:
     global _INNERTUBE_KEY_CACHE
     if _INNERTUBE_KEY_CACHE:
         return _INNERTUBE_KEY_CACHE
-    env = os.environ.get("REWATCH_INNERTUBE_KEY")
+    env = os.environ.get("HOOKLINE_INNERTUBE_KEY")
     if env:
         return env
     try:
@@ -348,7 +348,7 @@ def signal_summary_text(signal: list[dict] | None, estimates: list[float] | None
 # mock
 
 MOCK_TITLE = "The Hidden Economics of Attention (Mock Demo)"
-MOCK_AUTHOR = "Rewatch Sandbox"
+MOCK_AUTHOR = "Hookline Sandbox"
 
 def mock_transcript() -> list[dict]:
     lines = [
@@ -403,7 +403,7 @@ def mock_clips(duration: str) -> list[dict]:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "message": "rewatch api active", "v2": True}
+    return {"status": "ok", "message": "hookline api active", "v2": True}
 
 
 @app.get("/api/video-title")

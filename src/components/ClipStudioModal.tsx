@@ -68,7 +68,7 @@ export function ClipStudioModal({
       if (!stop) setFrame(f)
       setCookiesInfo(await cookiesGet().catch(() => null))
       setTemp(await tempInfo().catch(() => null))
-      const saved = localStorage.getItem(`rewatch.job.${videoId}`)
+      const saved = localStorage.getItem(`hookline.job.${videoId}`)
       if (saved && !stop) {
         jobIdRef.current = saved
         const p = await pollRender(saved).catch(() => null)
@@ -89,7 +89,7 @@ export function ClipStudioModal({
       if (!p) return
       setJob(p)
       if (p.status === 'done' || p.status === 'partial' || p.status === 'failed') {
-        localStorage.removeItem(`rewatch.job.${videoId}`)
+        localStorage.removeItem(`hookline.job.${videoId}`)
         setFrame(await clipFrameUrl(videoId, clips[initialIndex]?.start ?? 0).catch(() => null))
         setTemp(await tempInfo().catch(() => null))
       }
@@ -103,7 +103,7 @@ export function ClipStudioModal({
       if (chosen.length === 0) return
       const id = await startRenderBatch(videoId, chosen, opts)
       jobIdRef.current = id
-      localStorage.setItem(`rewatch.job.${videoId}`, id)
+      localStorage.setItem(`hookline.job.${videoId}`, id)
       setJob({ id, status: 'queued', total: chosen.length, done: 0, items: chosen.map((c) => ({ key: `${c.start}-${c.end}`, status: 'pending' as const, file: null })), zip: null, log: [] })
     },
     [clips, sel, videoId, opts]
@@ -240,7 +240,7 @@ export function ClipStudioModal({
 
           <section className="studio-preview">
             <div className="phone" style={{ aspectRatio }}>
-              {frame ? <img src={frame} alt="frame preview" /> : <div className="phone-empty mono">{tr('studio.aspect')} preview</div>}
+              {frame ? <img src={frame} alt="frame preview" /> : <div className="phone-empty mono">{tr('studio.preview')}</div>}
             </div>
           </section>
 
@@ -263,7 +263,7 @@ export function ClipStudioModal({
                 ))}
               </ul>
             ) : (
-              <p className="hist-empty">{tr('hist.empty')}</p>
+              <p className="hist-empty">{tr('studio.nojob')}</p>
             )}
             {job && (job.status === 'done' || job.status === 'partial') && job.zip ? (
               <a className="btn primary zip-btn" href={zipUrl(job.id)} download>
@@ -293,7 +293,7 @@ export function ClipStudioModal({
           </section>
 
           <section className="studio-tools">
-            <h4 className="section-title">Cookies</h4>
+            <h4 className="section-title">{tr('cookies.sect')}</h4>
             <p className="tools-hint">{tr('cookies.desc')}</p>
             <p className="mono cookies-state">{cookiesInfo?.present ? tr('cookies.present', { n: cookiesInfo.lines ?? 0, d: (cookiesInfo.domains ?? []).slice(0, 3).join(', ') }) : tr('cookies.none')}</p>
             <textarea className="transcript-box" rows={4} placeholder="# Netscape HTTP Cookie File" value={cookiesText} onChange={(e) => setCookiesText(e.target.value)} />
@@ -311,7 +311,7 @@ export function ClipStudioModal({
                 {tr('cookies.remove')}
               </button>
             </div>
-            <h4 className="section-title">Temp</h4>
+            <h4 className="section-title">{tr('temp.title')}</h4>
             <p className="mono cookies-state">{temp ? tr('temp.usage', { n: temp.files, b: fmtBytes(temp.bytes) }) : ''}</p>
             <button
               className="btn small ghost"
@@ -327,7 +327,7 @@ export function ClipStudioModal({
         </div>
 
         <footer className="modal-foot">
-          {job?.status === 'downloading' ? 'downloading source' : mock ? `${tr('mock.badge')} sandbox render` : tr('player.hint')}
+          {job?.status === 'downloading' ? tr('studio.downloading') : mock ? tr('studio.sandboxnote') : tr('player.hint')}
         </footer>
       </div>
     </div>

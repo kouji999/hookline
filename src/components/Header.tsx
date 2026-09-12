@@ -15,7 +15,7 @@ export function Header({ onToggleHistory, historyOpen }: { onToggleHistory: () =
       <div className="brand">
         <LogoMark />
         <div className="brand-text">
-          <span className="brand-name">rewatch</span>
+          <span className="brand-name">Hookline</span>
           <span className="brand-tag">{tr('header.tagline')}</span>
         </div>
       </div>
