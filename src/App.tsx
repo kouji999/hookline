@@ -12,8 +12,8 @@ import { streamAnalyze } from './lib/api'
 import { getCapabilities } from './lib/render'
 import type { Capabilities } from './types'
 import {
-  dropResult, loadCfg, loadHistory, loadKey, loadLang, loadResult,
-  saveCfg, saveHistory, saveKey, saveResult,
+  dropResult, loadCfg, loadHistory, loadLang, loadResult,
+  saveCfg, saveHistory, saveResult,
 } from './lib/storage'
 import { chapterLines, copyText, plainLines, titledLines } from './lib/time'
 import type { AnalysisResult, Clip, HistoryEntry, StageEvent, StreamHandlers } from './types'
@@ -30,7 +30,7 @@ const IDLE_STAGES: Record<StageKey, StageState> = {
 
 function Shell() {
   const { tr } = useI18n()
-  const [cmd, setCmd] = useState<CmdValues>({ url: '', duration: '30s', apiKey: '', focus: '', count: 8, transcript: '' })
+  const [cmd, setCmd] = useState<CmdValues>({ url: '', duration: '30s', focus: '', count: 8, transcript: '', sandbox: false })
   const [running, setRunning] = useState(false)
   const [stages, setStages] = useState<Record<StageKey, StageState>>(IDLE_STAGES)
   const [result, setResult] = useState<AnalysisResult | null>(null)
@@ -47,8 +47,13 @@ function Shell() {
 
   useEffect(() => {
     setHistory(loadHistory())
-    setCmd((c) => ({ ...c, apiKey: loadKey(), duration: loadCfg().duration, count: loadCfg().clipCount }))
-    void getCapabilities().then(setCaps).catch(() => setCaps(null))
+    setCmd((c) => ({ ...c, duration: loadCfg().duration, count: loadCfg().clipCount }))
+    void getCapabilities()
+      .then((c) => {
+        setCaps(c)
+        if (!c.server_key) setCmd((p) => ({ ...p, sandbox: true }))
+      })
+      .catch(() => setCaps(null))
   }, [])
 
   useEffect(() => {
@@ -69,7 +74,6 @@ function Shell() {
   const patchCmd = useCallback((patch: Partial<CmdValues>) => {
     setCmd((c) => {
       const next = { ...c, ...patch }
-      if (patch.apiKey !== undefined) saveKey(patch.apiKey)
       if (patch.duration !== undefined || patch.count !== undefined) {
         saveCfg({ duration: next.duration, clipCount: next.count, showPlayer: true })
       }
@@ -135,7 +139,8 @@ function Shell() {
       onError: (e) => {
         const stage: StageKey = e.stage === 'transcript' ? 'transcript' : 'analyze'
         setStage(stage, { status: 'fail', detail: '' })
-        setError(e.stage === 'transcript' ? tr('err.transcript') : tr('err.analyze'))
+        if (e.code === 'no_key') setError(tr('err.nokey'))
+        else setError(e.stage === 'transcript' ? tr('err.transcript') : tr('err.analyze'))
       },
     }
 
@@ -144,7 +149,7 @@ function Shell() {
         {
           url: cmd.url.trim(),
           duration: cmd.duration,
-          api_key: cmd.apiKey.trim(),
+          api_key: cmd.sandbox ? 'mock' : '',
           custom_prompt: cmd.focus.trim() || undefined,
           target_clip_count: cmd.count,
           subtitles: cmd.transcript.trim() || undefined,
@@ -211,7 +216,7 @@ function Shell() {
       <Header onToggleHistory={() => setHistoryOpen((s) => !s)} historyOpen={historyOpen} />
       <main className={`layout${historyOpen ? ' with-history' : ''}`}>
         <div className="col-main">
-          <CommandBar values={cmd} onChange={patchCmd} onSubmit={runAnalyze} running={running} onStop={stopAnalyze} />
+          <CommandBar values={cmd} onChange={patchCmd} onSubmit={runAnalyze} running={running} onStop={stopAnalyze} serverKey={caps?.server_key ?? false} />
           <Pipeline stages={stages} />
           {error && (
             <div className="error-box" role="alert">

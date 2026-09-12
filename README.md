@@ -53,6 +53,15 @@ Git · Node.js v18+ · Python v3.10+ · FFmpeg (drop binaries into `tools/ffmpeg
 git clone https://github.com/kouji999/hookline.git && cd hookline
 npm install
 python -m pip install -r backend/requirements.txt
+```
+
+Create `backend/.env` with your server key (never committed, git-ignored):
+
+```
+GEMINI_API_KEY=*** key from aistudio.google.com>
+```
+
+```bash
 npm run dev
 ```
 
@@ -60,7 +69,7 @@ Frontend `http://localhost:5173` · Backend `http://localhost:8000` · Swagger `
 
 ### Workflow
 
-1. **Analyze** — paste a YouTube URL, add your free [Google AI Studio](https://aistudio.google.com/) key (or `mock` for sandbox), pick clip length, run.
+1. **Analyze** — paste a YouTube URL, optionally tell the AI what to look for, hit *Find viral moments*. The key lives server-side; the UI never asks for one. Toggle **Sandbox** for a full demo run with zero API calls.
 2. **Review** — click the heatmap to seek, scan ranked moments, copy timestamps as plain ranges, titled notes, or ready-made YouTube chapters.
 3. **Render** — open any moment in the Clip Studio, choose framing/caption preset, batch render, download the ZIP.
 4. **Revisit** — everything is stored locally: search, reload past analyses without burning quota.

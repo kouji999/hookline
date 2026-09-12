@@ -58,12 +58,18 @@ export interface AnalyzeRequest {
   subtitles?: string
 }
 
+export interface StreamError {
+  stage: string
+  message: string
+  code?: 'no_key'
+}
+
 export interface StreamHandlers {
   onMeta?: (videoId: string) => void
   onTitle?: (m: VideoMeta) => void
   onStage?: (e: StageEvent) => void
   onDone?: (r: AnalysisResult) => void
-  onError?: (e: { stage: string; message: string }) => void
+  onError?: (e: StreamError) => void
 }
 
 export interface HistoryEntry {
@@ -101,6 +107,7 @@ export interface Capabilities {
   nvenc: boolean
   cv2: boolean
   ytdlp: boolean
+  server_key: boolean
   presets: string[]
   aspects: string[]
   layouts: string[]

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
 import re
 import time
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 import requests
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -25,17 +27,19 @@ from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFoun
 
 import video_engine as ve
 
+load_dotenv(Path(__file__).resolve().parent / ".env")
+SERVER_GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+
 app = FastAPI(title="hookline", version="1.0.0")
 
 YT_OEMBED = "https://www.youtube.com/oembed"
-import os
 
 _INNERTUBE_KEY_CACHE: str | None = None
 
 
 def innertube_key() -> str | None:
     """Resolve YouTube's public innertube client key at runtime (rotated server-side by Google,
-    published on every watch page) — no hardcoded key in this repo."""
+    published on every watch page) â€” no hardcoded key in this repo."""
     global _INNERTUBE_KEY_CACHE
     if _INNERTUBE_KEY_CACHE:
         return _INNERTUBE_KEY_CACHE
@@ -435,6 +439,7 @@ def capabilities() -> dict:
         "nvenc": ff.get("nvenc", False),
         "cv2": has_cv2,
         "ytdlp": True,
+        "server_key": bool(SERVER_GEMINI_KEY),
         "presets": list(ve.PRESETS.keys()),
         "aspects": list(ve.ASPECTS.keys()),
         "layouts": list(ve.LAYOUTS),
@@ -570,14 +575,19 @@ def clear_temp() -> dict:
 async def analyze(req: AnalyzeRequest) -> StreamingResponse:
     async def gen() -> AsyncIterator[str]:
         started = time.time()
-        is_mock = req.api_key.strip().lower() == "mock"
+        effective_key = req.api_key.strip() or SERVER_GEMINI_KEY
+        is_mock = effective_key.lower() == "mock"
 
         # resolve video id (strict: invalid URL = explicit error, no silent fallback)
         vid = extract_video_id(req.url)
         if not vid:
-            yield sse("error", {"stage": "resolve", "message": "URL YouTube tidak valid. Pakai link watch?v=, youtu.be, shorts, embed, atau 11-char video ID." if req.url.strip()[-2:].lower() == "id" else "Invalid YouTube URL. Use watch?v=, youtu.be, shorts, embed link, or an 11-char video ID."})
+            yield sse("error", {"stage": "resolve", "message": "Invalid YouTube URL. Use watch?v=, youtu.be, shorts, embed link, or an 11-char video ID."})
             return
         yield await stage("meta", {"video_id": vid, "mock": is_mock}, 0.05)
+
+        if not is_mock and not effective_key:
+            yield sse("error", {"stage": "analyze", "code": "no_key", "message": "No Gemini key configured. Set GEMINI_API_KEY in backend/.env or enable sandbox mode."})
+            return
 
         # title
         if is_mock:
@@ -629,7 +639,7 @@ async def analyze(req: AnalyzeRequest) -> StreamingResponse:
             summary = signal_summary_text(signal, estimates, total)
             prompt = build_analysis_prompt(transcript, req.duration, req.custom_prompt, summary, req.target_clip_count, total)
             # dynamic discovery first (key-specific truth), fallback to static chain
-            discovered = await asyncio.to_thread(discover_flash_models, req.api_key)
+            discovered = await asyncio.to_thread(discover_flash_models, effective_key)
             chain: list[str] = []
             if discovered:
                 chain = discovered
@@ -644,7 +654,7 @@ async def analyze(req: AnalyzeRequest) -> StreamingResponse:
             for i, model in enumerate(chain):
                 yield await stage("stage", {"stage": "analyze", "status": "run", "model": model, "attempt": i + 1}, 0.1)
                 try:
-                    raw, model_used = await asyncio.to_thread(gemini_generate, req.api_key, model, prompt)
+                    raw, model_used = await asyncio.to_thread(gemini_generate, effective_key, model, prompt)
                     clips = parse_gemini_clips(raw)
                     if clips:
                         break

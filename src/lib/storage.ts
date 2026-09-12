@@ -2,7 +2,6 @@ import type { AnalysisResult, HistoryEntry, RenderOpts } from '../types'
 
 const K_HISTORY = 'hookline.history.v1'
 const K_LANG = 'hookline.lang'
-const K_KEY = 'hookline.key'
 const K_CFG = 'hookline.cfg.v1'
 const R_PREFIX = 'hookline.result.'
 
@@ -53,14 +52,6 @@ export function loadLang(): 'en' | 'id' {
 
 export function saveLang(l: 'en' | 'id'): void {
   localStorage.setItem(K_LANG, l)
-}
-
-export function loadKey(): string {
-  return localStorage.getItem(K_KEY) || ''
-}
-
-export function saveKey(k: string): void {
-  localStorage.setItem(K_KEY, k)
 }
 
 export function loadCfg(): { duration: string; clipCount: number; showPlayer: boolean } {

@@ -8,10 +8,10 @@ const DURATIONS = ['15s', '30s', '60s']
 export interface CmdValues {
   url: string
   duration: string
-  apiKey: string
   focus: string
   count: number
   transcript: string
+  sandbox: boolean
 }
 
 export function CommandBar({
@@ -20,12 +20,14 @@ export function CommandBar({
   onSubmit,
   running,
   onStop,
+  serverKey,
 }: {
   values: CmdValues
   onChange: (patch: Partial<CmdValues>) => void
   onSubmit: () => void
   running: boolean
   onStop: () => void
+  serverKey: boolean
 }) {
   const { tr } = useI18n()
   const [showTranscript, setShowTranscript] = useState(false)
@@ -73,19 +75,18 @@ export function CommandBar({
         </fieldset>
       </div>
 
-      <div className="cmd-row">
-        <label className="field grow">
-          <span className="field-label">{tr('cmd.apikey')}</span>
-          <input
-            type="password"
-            placeholder={tr('cmd.apikey.placeholder')}
-            value={values.apiKey}
-            onChange={(e) => onChange({ apiKey: e.target.value })}
-            autoComplete="off"
-            spellCheck={false}
-            disabled={running}
-          />
-        </label>
+      <label className="field">
+        <span className="field-label">{tr('cmd.focus')}</span>
+        <input
+          type="text"
+          placeholder={tr('cmd.focus.placeholder')}
+          value={values.focus}
+          onChange={(e) => onChange({ focus: e.target.value })}
+          disabled={running}
+        />
+      </label>
+
+      <div className="cmd-meta">
         <label className="field count">
           <span className="field-label">{tr('cmd.count')}</span>
           <input
@@ -98,23 +99,11 @@ export function CommandBar({
             className="mono"
           />
         </label>
+        <button type="button" className="link-toggle" onClick={() => setShowTranscript((s) => !s)} aria-expanded={showTranscript}>
+          <IconChevron />
+          {tr('cmd.transcript.toggle')}
+        </button>
       </div>
-
-      <label className="field">
-        <span className="field-label">{tr('cmd.focus')}</span>
-        <input
-          type="text"
-          placeholder={tr('cmd.focus.placeholder')}
-          value={values.focus}
-          onChange={(e) => onChange({ focus: e.target.value })}
-          disabled={running}
-        />
-      </label>
-
-      <button type="button" className="link-toggle" onClick={() => setShowTranscript((s) => !s)} aria-expanded={showTranscript}>
-        <IconChevron />
-        {tr('cmd.transcript.toggle')}
-      </button>
       {showTranscript && (
         <textarea
           className="transcript-box"
@@ -136,7 +125,14 @@ export function CommandBar({
             {tr('cmd.run')}
           </button>
         )}
-        <span className="hint">{tr('cmd.hint')}</span>
+        <label className={`check sandbox${values.sandbox ? ' on' : ''}`}>
+          <input type="checkbox" checked={values.sandbox} onChange={(e) => onChange({ sandbox: e.target.checked })} disabled={running} />
+          {tr('cmd.sandbox')}
+          <span className="sb-hint mono">{tr('cmd.sandbox.hint')}</span>
+        </label>
+        <span className={`hint engine ${serverKey && !values.sandbox ? 'ok' : ''}`}>
+          {values.sandbox ? tr('cmd.engine.sandbox') : serverKey ? tr('cmd.engine.live') : tr('cmd.engine.none')}
+        </span>
       </div>
     </form>
   )

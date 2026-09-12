@@ -1182,3 +1182,13 @@ input[type=range] { accent-color: var(--volt); width: 100%; }
 .tools-hint { margin: 0; font-size: 12px; color: var(--text-faint); line-height: 1.55; }
 .cookies-state { margin: 0; font-size: 11px; color: var(--text-dim); }
 .studio-queue .hist-empty, .studio-tools .hist-empty { margin: 0; }
+
+/* --- server-key era command bar --- */
+.cmd-meta { display: flex; align-items: end; gap: 18px; }
+.cmd-meta .count input { width: 76px; }
+.check.sandbox { flex-direction: row; align-items: center; gap: 9px; padding-bottom: 9px; color: var(--text-dim); font-size: 13px; user-select: none; }
+.check.sandbox .sb-hint { font-size: 10px; color: var(--text-faint); letter-spacing: 0.04em; }
+.check.sandbox.on { color: var(--text); }
+.hint.engine { padding-bottom: 10px; }
+.hint.engine.ok { color: var(--ok); }
+.cmd-actions { margin-top: 2px; }
