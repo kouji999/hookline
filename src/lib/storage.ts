@@ -90,7 +90,8 @@ export function loadStudio(sandboxDefault: boolean): RenderOpts {
     const raw = localStorage.getItem(K_STUDIO)
     if (raw) {
       const p = JSON.parse(raw) as Partial<RenderOpts>
-      return { ...fallback, ...p }
+      // sandbox is per-run truth (follows mock state), never trusted from persisted prefs
+      return { ...fallback, ...p, sandbox: sandboxDefault }
     }
   } catch {
     /* fallthrough */

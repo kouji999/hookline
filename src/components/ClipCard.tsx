@@ -15,7 +15,8 @@ function IconStudio() {
 
 export function ClipCard({ clip, rank, onPlay, onCopy, onStudio }: { clip: Clip; rank: number; onPlay: () => void; onCopy: () => void; onStudio: () => void }) {
   const { tr } = useI18n()
-  const pct = Math.round(clip.score * 100)
+  const pct = Math.round((clip.value ?? clip.score) * 100)
+  const subs = clip.subtitles?.length ?? 0
   return (
     <article className="clip-card" style={{ animationDelay: `${Math.min(rank, 12) * 35}ms` }}>
       <header className="clip-head">
@@ -23,11 +24,12 @@ export function ClipCard({ clip, rank, onPlay, onCopy, onStudio }: { clip: Clip;
         <h4 className="clip-title">{clip.title}</h4>
         <span className="clip-range mono chip">{fmtRange(clip)}</span>
       </header>
-      <div className="score-row" title={`attention score ${pct}%`}>
-        <div className="score-track" role="img" aria-label={`score ${pct} percent`}>
+      <div className="score-row" title={`substance score ${pct}%`}>
+        <div className="score-track" role="img" aria-label={`substance ${pct} percent`}>
           <div className="score-fill" style={{ '--fill': `${pct}%` } as CSSProperties} />
         </div>
         <span className="score-num mono">{pct}</span>
+        {clip.kind && <span className="kind-chip mono">{tr(`clip.kind.${clip.kind}`)}</span>}
       </div>
       <blockquote className="clip-quote">“{clip.quote}”</blockquote>
       <p className="clip-reason">{clip.reason}</p>
@@ -41,6 +43,11 @@ export function ClipCard({ clip, rank, onPlay, onCopy, onStudio }: { clip: Clip;
         <button className="btn small ghost" onClick={onCopy}>
           <IconCopy /> {tr('clip.copy')}
         </button>
+        {subs > 0 && (
+          <span className="mono subs-chip" title={tr('clip.subs', { n: subs })}>
+            CC {subs}
+          </span>
+        )}
       </footer>
     </article>
   )

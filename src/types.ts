@@ -4,6 +4,12 @@ export interface TranscriptSegment {
   text: string
 }
 
+export interface Subtitle {
+  start: number
+  duration: number
+  text: string
+}
+
 export interface Clip {
   start: number
   end: number
@@ -11,6 +17,11 @@ export interface Clip {
   reason: string
   quote: string
   score: number
+  kind?: 'insight' | 'method' | 'number' | 'story' | 'warning'
+  subtitles?: Subtitle[]
+  words?: number
+  value?: number
+  source_confidence?: number
 }
 
 export interface VideoMeta {
@@ -26,8 +37,9 @@ export interface AnalysisResult {
   title: string
   author: string
   mock: boolean
+  uploaded?: boolean
   total_seconds: number
-  signal_mode: 'youtube-real' | 'mock' | 'estimated'
+  signal_mode: 'youtube-real' | 'mock' | 'estimated' | 'model-timed'
   clips: Clip[]
   model: string
   elapsed_ms: number
@@ -56,12 +68,14 @@ export interface AnalyzeRequest {
   custom_prompt?: string
   target_clip_count: number
   subtitles?: string
+  language?: string
+  upload_id?: string
 }
 
 export interface StreamError {
   stage: string
   message: string
-  code?: 'no_key'
+  code?: 'no_key' | 'no_value'
 }
 
 export interface StreamHandlers {
@@ -99,6 +113,14 @@ export interface RenderOpts {
   nvenc: boolean
   cookies: boolean
   sandbox: boolean
+  hook_title?: boolean
+}
+
+export interface FinalCutOpts {
+  transition: string
+  xfade: number
+  order: 'chronological' | 'value'
+  hook_title: boolean
 }
 
 export interface Capabilities {
@@ -112,6 +134,8 @@ export interface Capabilities {
   aspects: string[]
   layouts: string[]
   backdrops: string[]
+  transitions?: string[]
+  max_upload_mb?: number
 }
 
 export interface RenderItem {
@@ -123,10 +147,12 @@ export interface RenderItem {
 
 export interface RenderProgress {
   id: string
+  kind?: 'batch' | 'final'
   status: 'queued' | 'downloading' | 'running' | 'done' | 'partial' | 'failed'
   total: number
   done: number
   items: RenderItem[]
   zip: string | null
+  final: string | null
   log: string[]
 }

@@ -1,4 +1,4 @@
-import type { Capabilities, Clip, RenderOpts, RenderProgress } from '../types'
+import type { Capabilities, Clip, FinalCutOpts, RenderOpts, RenderProgress, Subtitle } from '../types'
 
 export async function getCapabilities(): Promise<Capabilities> {
   const r = await fetch('/api/capabilities')
@@ -6,18 +6,39 @@ export async function getCapabilities(): Promise<Capabilities> {
   return (await r.json()) as Capabilities
 }
 
+export function clipSubtitles(c: Clip): Subtitle[] {
+  if (c.subtitles && c.subtitles.length > 0) return c.subtitles
+  const dur = Math.max(1, c.end - c.start)
+  return c.quote?.trim() ? [{ start: c.start, duration: Math.min(4, dur / 2), text: c.quote.trim() }] : []
+}
+
 export async function startRenderBatch(videoId: string, clips: Clip[], opts: RenderOpts): Promise<string> {
+  const payload = clips.map((c) => ({ ...c, subtitles: clipSubtitles(c) }))
   const r = await fetch('/api/render-batch', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       video_id: videoId,
-      clips: clips.map((c) => ({ ...c, subtitles: [] })),
+      clips: payload,
       opts: { ...opts },
     }),
   })
   if (!r.ok) throw new Error(`render-batch ${r.status}`)
-  const j = (await r.json()) as { job_id: string }
+  const j = (await r.json()) as { job_id?: string; error?: string }
+  if (!j.job_id) throw new Error(j.error || 'render-batch rejected')
+  return j.job_id
+}
+
+export async function startFinalCut(videoId: string, clips: Clip[], opts: RenderOpts, final: FinalCutOpts): Promise<string> {
+  const payload = clips.map((c) => ({ ...c, subtitles: clipSubtitles(c) }))
+  const r = await fetch('/api/final-cut', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ video_id: videoId, clips: payload, opts: { ...opts, ...final } }),
+  })
+  if (!r.ok) throw new Error(`final-cut ${r.status}`)
+  const j = (await r.json()) as { job_id?: string; error?: string }
+  if (!j.job_id) throw new Error(j.error || 'final-cut rejected')
   return j.job_id
 }
 

@@ -9,14 +9,14 @@ import { PlayerModal } from './components/PlayerModal'
 import { HistoryPanel } from './components/HistoryPanel'
 import { ClipStudioModal } from './components/ClipStudioModal'
 import { streamAnalyze } from './lib/api'
+import { uploadVideo, type UploadMeta } from './lib/upload'
 import { getCapabilities } from './lib/render'
-import type { Capabilities } from './types'
 import {
   dropResult, loadCfg, loadHistory, loadLang, loadResult,
   saveCfg, saveHistory, saveResult,
 } from './lib/storage'
 import { chapterLines, copyText, plainLines, titledLines } from './lib/time'
-import type { AnalysisResult, Clip, HistoryEntry, StageEvent, StreamHandlers } from './types'
+import type { AnalysisResult, Capabilities, Clip, HistoryEntry, StageEvent, StreamHandlers } from './types'
 import { IconCheck } from './components/Icons'
 
 type CopyFmt = 'plain' | 'titled' | 'chapters'
@@ -29,7 +29,7 @@ const IDLE_STAGES: Record<StageKey, StageState> = {
 }
 
 function Shell() {
-  const { tr } = useI18n()
+  const { tr, lang } = useI18n()
   const [cmd, setCmd] = useState<CmdValues>({ url: '', duration: '30s', focus: '', count: 8, transcript: '', sandbox: false })
   const [running, setRunning] = useState(false)
   const [stages, setStages] = useState<Record<StageKey, StageState>>(IDLE_STAGES)
@@ -43,6 +43,8 @@ function Shell() {
   const [studio, setStudio] = useState<number | null>(null)
   const [caps, setCaps] = useState<Capabilities | null>(null)
   const [copyFmt, setCopyFmt] = useState<CopyFmt>('plain')
+  const [upload, setUpload] = useState<UploadMeta | null>(null)
+  const [uploadPct, setUploadPct] = useState<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -140,6 +142,7 @@ function Shell() {
         const stage: StageKey = e.stage === 'transcript' ? 'transcript' : 'analyze'
         setStage(stage, { status: 'fail', detail: '' })
         if (e.code === 'no_key') setError(tr('err.nokey'))
+        else if (e.code === 'no_value') setError(tr('err.novalue'))
         else setError(e.stage === 'transcript' ? tr('err.transcript') : tr('err.analyze'))
       },
     }
@@ -147,12 +150,14 @@ function Shell() {
     try {
       await streamAnalyze(
         {
-          url: cmd.url.trim(),
+          url: upload ? '' : cmd.url.trim(),
           duration: cmd.duration,
           api_key: cmd.sandbox ? 'mock' : '',
           custom_prompt: cmd.focus.trim() || undefined,
           target_clip_count: cmd.count,
           subtitles: cmd.transcript.trim() || undefined,
+          language: lang,
+          upload_id: upload?.id,
         },
         handlers,
         ctl.signal
@@ -165,9 +170,29 @@ function Shell() {
       setRunning(false)
       abortRef.current = null
     }
-  }, [cmd, running, tr])
+  }, [cmd, running, tr, lang, upload])
 
   const stopAnalyze = useCallback(() => abortRef.current?.abort(), [])
+
+  const pickUpload = useCallback(
+    async (file: File) => {
+      setError(null)
+      setUploadPct(0)
+      try {
+        const meta = await uploadVideo(file, (p) => setUploadPct(p))
+        setUpload(meta)
+        setCmd((c) => ({ ...c, sandbox: false }))
+        setToast(tr('toast.uploaded', { n: meta.filename, d: Math.round(meta.duration) }))
+      } catch (e) {
+        setError((e as Error).message || tr('err.upload'))
+      } finally {
+        setUploadPct(null)
+      }
+    },
+    [tr]
+  )
+
+  const clearUpload = useCallback(() => setUpload(null), [])
 
   const doCopy = useCallback(
     async (clips: Clip[], fmtName: CopyFmt, all: boolean) => {
@@ -216,7 +241,19 @@ function Shell() {
       <Header onToggleHistory={() => setHistoryOpen((s) => !s)} historyOpen={historyOpen} />
       <main className={`layout${historyOpen ? ' with-history' : ''}`}>
         <div className="col-main">
-          <CommandBar values={cmd} onChange={patchCmd} onSubmit={runAnalyze} running={running} onStop={stopAnalyze} serverKey={caps?.server_key ?? false} />
+          <CommandBar
+            values={cmd}
+            onChange={patchCmd}
+            onSubmit={runAnalyze}
+            running={running}
+            onStop={stopAnalyze}
+            serverKey={caps?.server_key ?? false}
+            upload={upload}
+            uploadPct={uploadPct}
+            onPickUpload={(f) => void pickUpload(f)}
+            onClearUpload={clearUpload}
+            maxUploadMb={caps?.max_upload_mb ?? 2000}
+          />
           <Pipeline stages={stages} />
           {error && (
             <div className="error-box" role="alert">
@@ -278,9 +315,9 @@ function Shell() {
         )}
       </main>
       {toast && <div className="toast">{toast}</div>}
-      {player && <PlayerModal videoId={player.videoId} start={player.start} title={player.title} onClose={() => setPlayer(null)} />}
+      {player && <PlayerModal videoId={player.videoId} start={player.start} title={player.title} uploaded={result?.uploaded} onClose={() => setPlayer(null)} />}
       {result && studio !== null && (
-        <ClipStudioModal videoId={result.video_id} clips={result.clips} initialIndex={studio} mock={result.mock} caps={caps} onClose={() => setStudio(null)} />
+          <ClipStudioModal videoId={result.video_id} clips={result.clips} initialIndex={studio} mock={result.mock} uploaded={result.uploaded} caps={caps} onClose={() => setStudio(null)} />
       )}
     </div>
   )

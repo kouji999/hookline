@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Capabilities, Clip, RenderOpts, RenderProgress } from '../types'
+import type { Capabilities, Clip, FinalCutOpts, RenderOpts, RenderProgress } from '../types'
 import { useI18n } from '../i18n'
 import { fmt } from '../lib/time'
 import { loadStudio, saveStudio } from '../lib/storage'
 import {
-  clearTemp, clipFrameUrl, cookiesDelete, cookiesGet, cookiesSave,
-  pollRaw, pollRender, renderedFileUrl, startRawDownload, startRenderBatch, tempInfo, zipUrl,
+  clipFrameUrl, cookiesDelete, cookiesGet, cookiesSave,
+  clearTemp, pollRaw, pollRender, renderedFileUrl, startFinalCut, startRawDownload, startRenderBatch, tempInfo, zipUrl,
 } from '../lib/render'
 import { IconClose, IconSpinner } from './Icons'
 
@@ -24,6 +24,7 @@ export function ClipStudioModal({
   clips,
   initialIndex,
   mock,
+  uploaded,
   caps,
   onClose,
 }: {
@@ -31,11 +32,13 @@ export function ClipStudioModal({
   clips: Clip[]
   initialIndex: number
   mock: boolean
+  uploaded?: boolean
   caps: Capabilities | null
   onClose: () => void
 }) {
   const { tr } = useI18n()
   const [opts, setOpts] = useState<RenderOpts>(() => loadStudio(mock))
+  const [finalOpts, setFinalOpts] = useState<FinalCutOpts>({ transition: 'fade', xfade: 0.4, order: 'chronological', hook_title: true })
   const [sel, setSel] = useState<Set<number>>(() => new Set([initialIndex]))
   const [job, setJob] = useState<RenderProgress | null>(null)
   const [frame, setFrame] = useState<string | null>(null)
@@ -43,6 +46,7 @@ export function ClipStudioModal({
   const [cookiesInfo, setCookiesInfo] = useState<{ present: boolean; domains?: string[]; lines?: number } | null>(null)
   const [rawState, setRawState] = useState<string | null>(null)
   const [temp, setTemp] = useState<{ files: number; bytes: number } | null>(null)
+  const [jobError, setJobError] = useState<string | null>(null)
   const jobIdRef = useRef<string | null>(null)
 
   const patch = (p: Partial<RenderOpts>) => {
@@ -52,6 +56,7 @@ export function ClipStudioModal({
       return n
     })
   }
+  const patchFinal = (p: Partial<FinalCutOpts>) => setFinalOpts((o) => ({ ...o, ...p }))
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -97,16 +102,47 @@ export function ClipStudioModal({
     return () => window.clearInterval(t)
   }, [job, videoId, clips, initialIndex])
 
-  const startRender = useCallback(
-    async (all: boolean) => {
-      const chosen = all ? clips : clips.filter((_, i) => sel.has(i))
-      if (chosen.length === 0) return
-      const id = await startRenderBatch(videoId, chosen, opts)
-      jobIdRef.current = id
-      localStorage.setItem(`hookline.job.${videoId}`, id)
-      setJob({ id, status: 'queued', total: chosen.length, done: 0, items: chosen.map((c) => ({ key: `${c.start}-${c.end}`, status: 'pending' as const, file: null })), zip: null, log: [] })
+  const chosen = useCallback(
+    (all: boolean) => (all ? clips : clips.filter((_, i) => sel.has(i))),
+    [clips, sel]
+  )
+
+  const launch = useCallback(
+    (p: Promise<string>) => {
+      setJobError(null)
+      p.then((id) => {
+        jobIdRef.current = id
+        localStorage.setItem(`hookline.job.${videoId}`, id)
+        setJob({ id, kind: 'batch', status: 'queued', total: 1, done: 0, items: [], zip: null, final: null, log: [] })
+      }).catch((e: Error) => setJobError(e.message))
     },
-    [clips, sel, videoId, opts]
+    [videoId]
+  )
+
+  const startRender = useCallback(
+    (all: boolean) => {
+      const list = chosen(all)
+      if (list.length === 0) {
+        setJobError(tr('studio.pick'))
+        return
+      }
+      setJob({ id: '', kind: 'batch', status: 'queued', total: list.length, done: 0, items: list.map((c) => ({ key: `${Math.trunc(c.start)}-${Math.trunc(c.end)}`, status: 'pending' as const, file: null })), zip: null, final: null, log: [] })
+      launch(startRenderBatch(videoId, list, opts))
+    },
+    [chosen, videoId, opts, launch, tr]
+  )
+
+  const startFinal = useCallback(
+    (all: boolean) => {
+      const list = chosen(all)
+      if (list.length === 0) {
+        setJobError(tr('studio.pick'))
+        return
+      }
+      setJob({ id: '', kind: 'final', status: 'queued', total: list.length, done: 0, items: list.map((c) => ({ key: `${Math.trunc(c.start)}-${Math.trunc(c.end)}`, status: 'pending' as const, file: null })), zip: null, final: null, log: [] })
+      launch(startFinalCut(videoId, list, { ...opts, title: '', hook_title: finalOpts.hook_title } as RenderOpts, finalOpts))
+    },
+    [chosen, videoId, opts, finalOpts, launch, tr]
   )
 
   const startRaw = useCallback(async () => {
@@ -134,6 +170,7 @@ export function ClipStudioModal({
 
   const jobBusy = job && (job.status === 'queued' || job.status === 'downloading' || job.status === 'running')
   const renderDisabled = !caps?.ffmpeg
+  const isFinal = job?.kind === 'final'
 
   const aspectRatio = useMemo(() => {
     switch (opts.aspect) {
@@ -204,10 +241,12 @@ export function ClipStudioModal({
                 <input type="checkbox" checked={opts.nvenc} onChange={(e) => patch({ nvenc: e.target.checked })} disabled={!caps?.nvenc} />
                 {tr('studio.nvenc')} {caps?.nvenc ? '' : '(n/a)'}
               </label>
-              <label className="check">
-                <input type="checkbox" checked={opts.cookies} onChange={(e) => patch({ cookies: e.target.checked })} />
-                {tr('studio.cookies')}
-              </label>
+              {!uploaded && (
+                <label className="check">
+                  <input type="checkbox" checked={opts.cookies} onChange={(e) => patch({ cookies: e.target.checked })} />
+                  {tr('studio.cookies')}
+                </label>
+              )}
             </div>
             <div className="ctl">
               <label className="field-label">{tr('studio.preset')}</label>
@@ -225,23 +264,63 @@ export function ClipStudioModal({
               </label>
               <input type="range" min={80} max={900} step={10} value={opts.subtitle_v} onChange={(e) => patch({ subtitle_v: Number(e.target.value) })} />
             </div>
+            <div className="ctl finalcut">
+              <label className="check">
+                <input type="checkbox" checked={finalOpts.hook_title} onChange={(e) => patchFinal({ hook_title: e.target.checked })} />
+                {tr('studio.hooktitle')}
+              </label>
+              <div className="ctl">
+                <label className="field-label">{tr('studio.transition')}</label>
+                <div className="seg-group tight">
+                  {(caps?.transitions ?? ['fade', 'wipeleft', 'circleopen', 'none']).map((t) => (
+                    <button key={t} type="button" className={finalOpts.transition === t ? 'on' : ''} onClick={() => patchFinal({ transition: t })}>
+                      <span className="mono">{t}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="ctl">
+                <label className="field-label">
+                  {tr('studio.xfade')} <span className="mono">{finalOpts.xfade.toFixed(2)}s</span>
+                </label>
+                <input type="range" min={0} max={1} step={0.05} value={finalOpts.xfade} onChange={(e) => patchFinal({ xfade: Number(e.target.value) })} />
+              </div>
+              <div className="ctl">
+                <label className="field-label">{tr('studio.order')}</label>
+                <div className="seg-group tight">
+                  <button type="button" className={finalOpts.order === 'chronological' ? 'on' : ''} onClick={() => patchFinal({ order: 'chronological' })}>
+                    {tr('studio.order.chronological')}
+                  </button>
+                  <button type="button" className={finalOpts.order === 'value' ? 'on' : ''} onClick={() => patchFinal({ order: 'value' })}>
+                    {tr('studio.order.value')}
+                  </button>
+                </div>
+              </div>
+            </div>
             <div className="ctl actions">
-              <button className="btn primary" onClick={() => void startRender(false)} disabled={renderDisabled || !!jobBusy || sel.size === 0}>
+              <button className="btn primary" onClick={() => startRender(false)} disabled={renderDisabled || !!jobBusy || sel.size === 0}>
                 {tr('studio.render')} <span className="mono">({tr('studio.selected', { n: sel.size })})</span>
               </button>
-              <button className="btn ghost" onClick={() => void startRender(true)} disabled={renderDisabled || !!jobBusy}>
+              <button className="btn ghost" onClick={() => startRender(true)} disabled={renderDisabled || !!jobBusy}>
                 {tr('studio.renderAll')} <span className="mono">({clips.length})</span>
               </button>
-              <button className="btn ghost" onClick={() => void startRaw()} disabled={rawState === 'queued' || rawState === 'running'}>
-                {tr('raw.start')} {rawState ? <span className="mono">[{rawState}]</span> : null}
+              <button className="btn accent" onClick={() => startFinal(false)} disabled={renderDisabled || !!jobBusy || sel.size === 0}>
+                {tr('studio.final')} <span className="mono">({sel.size})</span>
               </button>
+              {!uploaded && (
+                <button className="btn ghost" onClick={() => void startRaw()} disabled={rawState === 'queued' || rawState === 'running'}>
+                  {tr('raw.start')} {rawState ? <span className="mono">[{rawState}]</span> : null}
+                </button>
+              )}
             </div>
+            {jobError && <p className="queue-error">{jobError}</p>}
           </section>
 
           <section className="studio-preview">
             <div className="phone" style={{ aspectRatio }}>
               {frame ? <img src={frame} alt="frame preview" /> : <div className="phone-empty mono">{tr('studio.preview')}</div>}
             </div>
+            <p className="tools-hint">{tr('studio.finalnote')}</p>
           </section>
 
           <section className="studio-queue">
@@ -254,27 +333,41 @@ export function ClipStudioModal({
                     <span className={`q-status s-${it.status}`}>
                       {it.status === 'rendering' ? <IconSpinner /> : null} {tr(`render.${it.status}`)}
                     </span>
-                    {it.file ? (
+                    {it.file && !isFinal ? (
                       <a className="mono q-dl" href={renderedFileUrl(it.file)} download>
                         .mp4
                       </a>
                     ) : null}
                   </li>
                 ))}
+                {isFinal && job.status === 'running' && job.done >= job.total ? (
+                  <li className="q-rendering">
+                    <span className="mono q-range">assemble</span>
+                    <span className="q-status s-rendering">
+                      <IconSpinner /> {tr('final.assembling')}
+                    </span>
+                  </li>
+                ) : null}
               </ul>
             ) : (
               <p className="hist-empty">{tr('studio.nojob')}</p>
             )}
-            {job && (job.status === 'done' || job.status === 'partial') && job.zip ? (
+            {job && !jobBusy && job.final ? (
+              <a className="btn primary zip-btn" href={renderedFileUrl(job.final)} download>
+                {tr('studio.finaldl')}
+              </a>
+            ) : null}
+            {job && !jobBusy && !isFinal && job.zip ? (
               <a className="btn primary zip-btn" href={zipUrl(job.id)} download>
                 {tr('studio.zip')}
               </a>
             ) : null}
             {jobBusy ? (
               <div className="queue-progress">
-                <div className="qp-bar" style={{ width: `${Math.round((job!.done / Math.max(1, job!.total)) * 100)}%` }} />
+                <div className="qp-bar" style={{ width: `${Math.round(((job?.done ?? 0) / Math.max(1, job?.total ?? 1)) * 100)}%` }} />
               </div>
             ) : null}
+            {job && job.log.length > 0 && <pre className="queue-log mono">{job.log.join('\n')}</pre>}
             <ul className="clip-pick">
               {clips.slice(0, 12).map((c, i) => (
                 <li key={`${c.start}-${i}`}>

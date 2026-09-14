@@ -1,6 +1,7 @@
 """Unit tests for pure backend functions (no network, no ffmpeg)."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -108,6 +109,29 @@ def test_gemini_chain_order():
     assert len(main.GEMINI_CHAIN) >= 3
 
 
+def test_cv2_face_api_present():
+    """Regression: opencv 5.x removed CascadeClassifier (job died in prod 2026-09-13).
+    Requirements pin <5; fail loudly if environment drifts."""
+    import cv2
+    assert hasattr(cv2, "CascadeClassifier"), "opencv>=5 breaks face tracking"
+    assert hasattr(cv2, "data")
+
+
+def test_required_imports_present():
+    """Regression: dotenv/yt_dlp were silently missing from requirements and broke fresh install."""
+    from importlib.util import find_spec
+    for mod in ("dotenv", "yt_dlp", "requests", "fastapi", "uvicorn", "google.genai", "youtube_transcript_api"):
+        assert find_spec(mod), f"missing module: {mod}"
+
+
+def test_render_batch_coerces_sandbox_string():
+    """Regression: PowerShell/JSON string 'false' once enabled sandbox for a real render."""
+    job_id = ve.new_job("dQw4w9WgXcQ", [{"start": 1, "end": 5, "title": "t", "quote": ""}], {"sandbox": "false", "nvenc": "true"})
+    j = ve.JOBS[job_id]
+    assert j["opts"]["sandbox"] is False
+    assert j["opts"]["nvenc"] is True
+
+
 # --- scoring -------------------------------------------------------------------
 
 def test_score_with_signal_overlap():
@@ -153,6 +177,28 @@ def test_crop_filter_center_and_clamp():
     assert ve.crop_filter([(0.0, 1.0)], 1920, 607) == "crop=607:ih:1313:0"
 
 
+def test_relative_subtitles_windows():
+    """Regression: absolute->clip-relative conversion once produced 35s windows
+    from 3.5s segments (offset subtraction bug)."""
+    subs = [
+        {"start": 1135.0, "duration": 3.5, "text": "first line"},
+        {"start": 1139.0, "duration": 4.0, "text": "second line"},
+        {"start": 9999.0, "duration": 2.0, "text": "outside range"},
+    ]
+    rel = ve.relative_subtitles(subs, start=1135.0, dur=35.0)
+    assert len(rel) == 2
+    assert rel[0]["start"] == 0.0 and rel[0]["duration"] == pytest.approx(3.5)
+    assert rel[1]["start"] == pytest.approx(4.0) and rel[1]["duration"] == pytest.approx(4.0)
+
+
+def test_relative_subtitles_clips_tail():
+    subs = [{"start": 1168.0, "duration": 6.0, "text": "tail runs past clip end"}]
+    rel = ve.relative_subtitles(subs, start=1135.0, dur=35.0)
+    assert len(rel) == 1
+    assert rel[0]["start"] == 33.0
+    assert rel[0]["duration"] == pytest.approx(2.0)
+
+
 def test_build_ass_structure():
     subs = [{"start": 0.0, "duration": 3.0, "text": "hello {world} braces"}, {"start": 3.0, "duration": 2.0, "text": "second"}]
     ass = ve.build_ass(subs, "viral-pop", 1920, 260)
@@ -190,3 +236,107 @@ def test_cookies_lifecycle(tmp_path, monkeypatch):
     assert ve.cookies_status()["present"] is True
     ve.delete_cookies()
     assert ve.cookies_status() == {"present": False}
+
+
+# --- v3: substance scoring, upload analysis, final cut ---------------------
+
+def test_clip_subtitles_window():
+    segs = [
+        {"start": 100.0, "duration": 3.0, "text": "before clip"},
+        {"start": 110.0, "duration": 4.0, "text": "inside clip"},
+        {"start": 200.0, "duration": 2.0, "text": "after clip"},
+    ]
+    subs = main.clip_subtitles(segs, 108.0, 140.0)
+    assert len(subs) == 1
+    assert subs[0]["start"] == 110.0
+
+
+def test_quote_fidelity_and_snap_edge():
+    segs = [{"start": 50.0, "duration": 4.0, "text": "alpha beta gamma delta"}]
+    assert main.quote_fidelity("alpha gamma", segs) == 1.0
+    assert main.quote_fidelity("zzzz qqqq", segs) == 0.0
+    assert main.snap_edge(segs, 51.5, tol=3.0) == 50.0
+    assert main.snap_edge(segs, 30.0, tol=3.0) == 30.0
+
+
+def test_enrich_clip_value_and_filler():
+    segs = [{"start": 10.0, "duration": 4.0, "text": f"word{i} " * 12} for i in range(6)]
+    clip = {"start": 10.0, "end": 30.0, "title": "t", "reason": "r", "quote": "word1 word2"}
+    out = main.enrich_clip(dict(clip), segs, None, None, 40.0)
+    assert 0 <= out["value"] <= 1
+    assert out["subtitles"]
+    filler = {"start": 10.0, "end": 30.0, "title": "t", "reason": "r", "quote": "word1 word2",
+              "captions": None}
+    segs_f = [{"start": 10.0, "duration": 20.0, "text": "hey guys don't forget to like and subscribe"}]
+    f = main.enrich_clip(dict(filler), segs_f, None, None, 40.0)
+    plain = main.enrich_clip(dict(filler), [{"start": 10.0, "duration": 20.0, "text": "the margin model works like this"}], None, None, 40.0)
+    assert f["value"] < plain["value"]
+
+
+def test_source_id_rejects_traversal():
+    from fastapi import HTTPException
+    assert main.source_id("dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+    assert main.source_id("https://youtu.be/dQw4w9WgXcQ?si=x") == "dQw4w9WgXcQ"
+    assert main.source_id("up1a2b3c4d5e") == "up1a2b3c4d5e"
+    for bad in ["../../windows", "a/b", "x" * 100, "id;rm -rf"]:
+        try:
+            main.source_id(bad)
+            raise AssertionError(f"should reject {bad!r}")
+        except HTTPException:
+            pass
+
+
+def test_build_video_prompt_rubric():
+    p = main.build_video_prompt(30, "crypto frameworks", 5, 300.0, "id")
+    assert "Substance" in p and "greeting" in p.lower()
+    assert "captions" in p and "crypto frameworks" in p
+    assert "Indonesian" in p
+
+
+def test_parse_video_clips_offsets_captions():
+    payload = json.dumps([
+        {"start": 5, "end": 35, "title": "T", "kind": "method", "reason": "r", "quote": "hello there",
+         "captions": [{"s": 0, "d": 3, "t": "hello there"}, {"s": 3, "d": 4, "t": "second line"}]},
+        {"start": 500, "end": 480, "title": "bad range"},
+    ])
+    clips = main.parse_video_clips(payload, offset=120.0, cap=600.0)
+    assert len(clips) == 1
+    c = clips[0]
+    assert c["start"] == 125.0 and c["end"] == 155.0
+    assert c["captions"][0]["start"] == 125.0
+    assert c["captions"][1]["start"] == 128.0
+
+
+def test_clip_token_matches_export_naming():
+    tok = ve.clip_token(1376.9, 1413.2)
+    assert tok == "1376-1413"
+    name = f"vid_{tok}_abc123.mp4"
+    assert ve.clip_token(1376.9, 1413.2) in name
+
+
+def test_assemble_final_rejects_empty_parts():
+    assert ve.assemble_final([], Path("x.mp4"), "9:16", "fade", 0.4, []) is None
+
+
+def test_merge_overlapping_subs_no_stacked_captions():
+    """YouTube ASR segments overlap; ASS events must never render two lines at once."""
+    subs = [
+        {"start": 0.0, "duration": 4.0, "text": "the first line here"},
+        {"start": 2.0, "duration": 4.0, "text": "the first line here continues now"},
+        {"start": 6.0, "duration": 2.0, "text": "separate later line"},
+    ]
+    merged = ve.merge_overlapping_subs(subs)
+    for i in range(1, len(merged)):
+        assert merged[i]["start"] >= merged[i - 1]["start"] + merged[i - 1]["duration"] - 0.01
+    assert merged[-1]["text"] == "separate later line"
+    assert "continues" in merged[0]["text"]
+
+
+def test_relative_subtitles_overlap_free():
+    subs = [
+        {"start": 100.0, "duration": 3.0, "text": "alpha beta"},
+        {"start": 101.5, "duration": 3.0, "text": "beta gamma delta"},
+    ]
+    rel = ve.relative_subtitles(subs, 100.0, 8.0)
+    assert len(rel) >= 1
+    assert sum(1 for r in rel if r["start"] < 2.0) == 1
