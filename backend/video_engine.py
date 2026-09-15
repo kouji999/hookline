@@ -127,10 +127,18 @@ def download_source(video_id: str, cookie_mode: bool, log: list[str]) -> Path | 
         f"https://www.youtube.com/watch?v={video_id}",
     ]
     if cookie_mode and COOKIES.exists():
-        cmd += ["--cookies", str(COOKIES)]
+        if cookies_are_valid():
+            cmd += ["--cookies", str(COOKIES)]
+        else:
+            log.append("cookies file is malformed - ignoring it and retrying anonymously (fix or remove it in the studio)")
     r = run(cmd, timeout=900)
     log.append((r.stdout or r.stderr or "")[-400:])
     if r.returncode != 0:
+        if cookie_mode and COOKIES.exists() and not cookies_are_valid():
+            return None
+        # a bot-check wall answers as an error with "cookies" advice: surface it instead of a dead end
+        if "cookies" in (r.stderr or "").lower() or "sign in" in (r.stderr or "").lower():
+            log.append("YouTube asked to sign in for this video - enable Use cookies with a real browser export, or pick another video")
         return None
     for cand in TEMP.glob(f"{video_id}.*"):
         if cand.suffix.lower() in (".mp4", ".mkv", ".webm"):
@@ -634,6 +642,16 @@ def punch_filter(out_w: int, out_h: int, dur: float, amount: float = 0.05) -> st
     )
 
 
+NVENC_OK: bool | None = None
+
+
+def nvenc_available() -> bool:
+    global NVENC_OK
+    if NVENC_OK is None:
+        NVENC_OK = bool(ff_available().get("nvenc"))
+    return NVENC_OK
+
+
 def render_clip(
     src: Path,
     video_id: str,
@@ -651,7 +669,7 @@ def render_clip(
     preset = opts.get("preset", "viral-pop")
     subtitle_v = int(opts.get("subtitle_v", 260))
     title_text = str(opts.get("title") or clip.get("title") or "")
-    use_nvenc = bool(opts.get("nvenc", True))
+    use_nvenc = bool(opts.get("nvenc", True)) and nvenc_available()
     subs: list[dict] = clip.get("subtitles") or []
 
     key = clip_token(clip["start"], clip["end"]) + f"_{uuid.uuid4().hex[:6]}"
@@ -1117,18 +1135,88 @@ def clear_temp() -> dict:
     return {"removed": removed, "kept_sources": kept, "freed_bytes": freed}
 
 
+def validate_cookies(text: str) -> tuple[list[str], list[str]]:
+    """Split Netscape cookie text into (valid_lines, bad_lines).
+    MozillaCookieJar (and yt-dlp) refuse the whole file unless the first line is the
+    '# Netscape HTTP Cookie File' header, and every data line needs 7 tab columns:
+    domain, flag, path, secure, expiry, name, value."""
+    valid: list[str] = []
+    bad: list[str] = []
+    body = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff").strip()
+    if not body:
+        return [], ["empty file"]
+    lines = body.split("\n")
+    has_header = lines[0].startswith("# Netscape") or lines[0].startswith("# HTTP Cookie File")
+    if not has_header:
+        bad.append("missing header: first line must be '# Netscape HTTP Cookie File'")
+    for line in lines:
+        line = line.rstrip()
+        if not line or line.startswith("#"):
+            valid.append(line)
+            continue
+        parts = line.split("\t")
+        if len(parts) < 7:
+            bad.append(line[:80])
+            continue
+        domain, flag, _path, secure, expiry, name = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
+        ok = (
+            domain and name
+            and flag.upper() in ("TRUE", "FALSE")
+            and secure.upper() in ("TRUE", "FALSE")
+            and (expiry.lstrip("-").isdigit() or expiry.upper() == "FALSE")
+        )
+        if ok:
+            valid.append(line)
+        else:
+            bad.append(line[:80])
+    return valid, bad
+
+
+def cookies_are_valid() -> bool:
+    if not COOKIES.exists():
+        return False
+    try:
+        _v, bad = validate_cookies(COOKIES.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return False
+    return not bad
+
+
 def save_cookies(text: str) -> dict:
-    COOKIES.write_text(text, encoding="utf-8")
-    domains = sorted(set(re.findall(r"(?m)^([a-z0-9.\-]+\.[a-z]+)\t", text.lower())))
-    return {"saved": True, "domains": domains[:12], "lines": len(text.splitlines())}
+    text = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff").strip()
+    if not text:
+        return {"saved": False, "error": "No cookie lines found. Export the file with a browser extension and paste the whole thing."}
+    if not text.startswith("# Netscape") and not text.startswith("# HTTP Cookie File"):
+        text = "# Netscape HTTP Cookie File\n" + text
+    valid, bad = validate_cookies(text)
+    if bad:
+        first = bad[0][:60]
+        return {"saved": False, "error": f"{len(bad)} baris bukan format Netscape (butuh header + 7 kolom tab: domain, flag, path, secure, expiry, name, value). Contoh baris rusak: {first!r}", "bad": bad[:5]}
+    if not any(l and not l.startswith("#") for l in valid):
+        return {"saved": False, "error": "No cookie lines found. Export the file with a browser extension and paste the whole thing."}
+    body = "\n".join(valid).strip() + "\n"
+    COOKIES.write_text(body, encoding="utf-8")
+    domains = sorted(set(re.findall(r"(?m)^([a-z0-9.\-]+\.[a-z]+)\t", body.lower())))
+    return {"saved": True, "domains": domains[:12], "lines": len([l for l in valid if l and not l.startswith("#")])}
 
 
 def cookies_status() -> dict:
     if not COOKIES.exists():
         return {"present": False}
-    text = COOKIES.read_text(encoding="utf-8", errors="replace")
+    try:
+        text = COOKIES.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {"present": True, "valid": False, "error": "unreadable", "lines": 0, "domains": []}
+    _v, bad = validate_cookies(text)
+    has_header = text.lstrip("\ufeff").startswith("# Netscape")
     domains = sorted(set(re.findall(r"(?m)^([a-z0-9.\-]+\.[a-z]+)\t", text.lower())))
-    return {"present": True, "domains": domains[:12], "lines": len(text.splitlines())}
+    n = len([l for l in text.splitlines() if l.strip() and not l.startswith("#")])
+    out = {"present": True, "valid": bool(has_header and not bad), "lines": n, "domains": domains[:12]}
+    if bad:
+        out["error"] = f"{len(bad)} baris rusak"
+    elif not has_header:
+        out["error"] = "header '# Netscape HTTP Cookie File' hilang - simpan ulang"
+    return out
 
 
 def delete_cookies() -> dict:

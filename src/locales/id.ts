@@ -81,6 +81,7 @@ const id: Record<string, string> = {
   'cookies.save': 'Simpan cookies',
   'cookies.remove': 'Hapus cookies',
   'cookies.present': 'Tersimpan · {n} baris · {d}',
+  'cookies.invalid': 'File tidak valid · {e}. Simpan ulang dengan header "# Netscape HTTP Cookie File".',
   'cookies.none': 'Belum ada cookies',
   'render.pending': 'menunggu',
   'render.rendering': 'merender',

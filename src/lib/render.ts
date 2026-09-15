@@ -80,19 +80,29 @@ export async function clipFrameUrl(videoId: string, t: number): Promise<string |
   return j.available && j.path ? j.path : null
 }
 
-export async function cookiesGet(): Promise<{ present: boolean; domains?: string[]; lines?: number }> {
-  const r = await fetch('/api/cookies')
-  if (!r.ok) return { present: false }
-  return (await r.json()) as { present: boolean; domains?: string[]; lines?: number }
+export interface CookiesState {
+  present: boolean
+  valid?: boolean
+  domains?: string[]
+  lines?: number
+  error?: string
 }
 
-export async function cookiesSave(text: string): Promise<{ domains: string[]; lines: number }> {
+export async function cookiesGet(): Promise<CookiesState> {
+  const r = await fetch('/api/cookies')
+  if (!r.ok) return { present: false }
+  return (await r.json()) as CookiesState
+}
+
+export async function cookiesSave(text: string): Promise<{ saved: boolean; domains: string[]; lines: number }> {
   const r = await fetch('/api/cookies', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
   })
-  return (await r.json()) as { domains: string[]; lines: number }
+  const j = (await r.json().catch(() => ({}))) as { detail?: string; domains?: string[]; lines?: number }
+  if (!r.ok) throw new Error(j.detail || `cookies rejected (${r.status})`)
+  return { saved: true, domains: j.domains ?? [], lines: j.lines ?? 0 }
 }
 
 export async function cookiesDelete(): Promise<void> {

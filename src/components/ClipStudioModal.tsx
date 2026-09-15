@@ -7,6 +7,7 @@ import {
   clipFrameUrl, cookiesDelete, cookiesGet, cookiesSave,
   clearTemp, pollRaw, pollRender, renderedFileUrl, startFinalCut, startRawDownload, startRenderBatch, tempInfo, zipUrl,
 } from '../lib/render'
+import type { CookiesState } from '../lib/render'
 import { IconClose, IconSpinner } from './Icons'
 
 const PRESET_LABELS: Record<string, string> = {
@@ -43,7 +44,7 @@ export function ClipStudioModal({
   const [job, setJob] = useState<RenderProgress | null>(null)
   const [frame, setFrame] = useState<string | null>(null)
   const [cookiesText, setCookiesText] = useState('')
-  const [cookiesInfo, setCookiesInfo] = useState<{ present: boolean; domains?: string[]; lines?: number } | null>(null)
+  const [cookiesInfo, setCookiesInfo] = useState<CookiesState | null>(null)
   const [rawState, setRawState] = useState<string | null>(null)
   const [temp, setTemp] = useState<{ files: number; bytes: number } | null>(null)
   const [jobError, setJobError] = useState<string | null>(null)
@@ -161,9 +162,14 @@ export function ClipStudioModal({
 
   const saveCookies = useCallback(async () => {
     if (!cookiesText.trim()) return
-    await cookiesSave(cookiesText)
-    setCookiesText('')
-    setCookiesInfo(await cookiesGet())
+    setJobError(null)
+    try {
+      await cookiesSave(cookiesText)
+      setCookiesText('')
+      setCookiesInfo(await cookiesGet())
+    } catch (e) {
+      setJobError((e as Error).message)
+    }
   }, [cookiesText])
 
   const fmtBytes = (b: number) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : b > 1024 ? `${(b / 1024).toFixed(0)} KB` : `${b} B`)
@@ -396,7 +402,9 @@ export function ClipStudioModal({
           <section className="studio-tools">
             <h4 className="section-title">{tr('cookies.sect')}</h4>
             <p className="tools-hint">{tr('cookies.desc')}</p>
-            <p className="mono cookies-state">{cookiesInfo?.present ? tr('cookies.present', { n: cookiesInfo.lines ?? 0, d: (cookiesInfo.domains ?? []).slice(0, 3).join(', ') }) : tr('cookies.none')}</p>
+            <p className={`mono cookies-state${cookiesInfo?.present && cookiesInfo.valid === false ? ' bad' : ''}`}>
+              {!cookiesInfo?.present ? tr('cookies.none') : cookiesInfo.valid === false ? tr('cookies.invalid', { e: cookiesInfo.error || 'invalid format' }) : tr('cookies.present', { n: cookiesInfo.lines ?? 0, d: (cookiesInfo.domains ?? []).slice(0, 3).join(', ') })}
+            </p>
             <textarea className="transcript-box" rows={4} placeholder="# Netscape HTTP Cookie File" value={cookiesText} onChange={(e) => setCookiesText(e.target.value)} />
             <div className="ctl actions inline">
               <button className="btn small" onClick={() => void saveCookies()} disabled={!cookiesText.trim()}>

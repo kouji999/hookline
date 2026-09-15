@@ -82,6 +82,7 @@ const en: Record<string, string> = {
   'cookies.save': 'Save cookies',
   'cookies.remove': 'Remove cookies',
   'cookies.present': 'Saved · {n} lines · {d}',
+  'cookies.invalid': 'Invalid file · {e}. Save it again with the header "# Netscape HTTP Cookie File".',
   'cookies.none': 'No cookies saved',
   'render.pending': 'pending',
   'render.rendering': 'rendering',

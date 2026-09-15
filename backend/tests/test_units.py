@@ -390,3 +390,32 @@ def test_clean_words_survives_legacy_number():
     assert main._clean_words([{"t": 1.0, "w": "halo"}, {"bad": 1}, [1, 2]]) == [{"t": 1.0, "w": "halo"}]
     assert main._clean_subs("nope") == []
     assert main._clean_subs([{"start": "10", "duration": "2", "text": "x"}]) == [{"start": 10.0, "duration": 2.0, "text": "x"}]
+
+
+def test_validate_cookies_and_header_autofix(tmp_path, monkeypatch):
+    good = "# Netscape HTTP Cookie File\n" + "\t".join([".youtube.com", "TRUE", "/", "FALSE", "1893456000", "SID", "real-value"])
+    v, bad = ve.validate_cookies(good)
+    assert bad == [] and len(v) == 2
+    # header is mandatory for MozillaCookieJar / yt-dlp - without it every line is rejected
+    _v, bad2 = ve.validate_cookies("not a cookie line")
+    assert any("header" in b for b in bad2)
+    # 6-field row rejected (the classic browser-extension mistake)
+    _v, bad3 = ve.validate_cookies("# Netscape HTTP Cookie File\na\tTRUE\t/\tFALSE\tb\tc")
+    assert any(b.startswith("a\t") for b in bad3)
+    # save adds the header MozillaCookieJar requires
+    monkeypatch.setattr(ve, "COOKIES", tmp_path / "cookies.txt")
+    res = ve.save_cookies(good)
+    assert res["saved"] is True
+    txt = (tmp_path / "cookies.txt").read_text(encoding="utf-8")
+    assert txt.startswith("# Netscape HTTP Cookie File")
+    import http.cookiejar
+    jar = http.cookiejar.MozillaCookieJar(str(tmp_path / "cookies.txt"))
+    jar.load()  # must not raise LoadError
+    st = ve.cookies_status()
+    assert st["present"] and st["valid"] is True
+    # invalid content rejected with a clear message
+    res2 = ve.save_cookies("garbage without tabs")
+    assert res2["saved"] is False and "Netscape" in res2["error"]
+    # download_source ignores a broken cookie file instead of poisoning every job
+    (tmp_path / "cookies.txt").write_text("junk-no-tabs\n", encoding="utf-8")
+    assert ve.cookies_are_valid() is False

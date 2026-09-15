@@ -1,2 +1,0 @@
-.youtube.com	TRUE	/	FALSE	1893456000	SID	abc123
-.youtube.com	TRUE	/	FALSE	1893456000	HSID	def456

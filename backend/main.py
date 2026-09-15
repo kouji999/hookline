@@ -928,7 +928,10 @@ def cookies_get() -> dict:
 
 @app.post("/api/cookies")
 def cookies_post(body: CookiesBody) -> dict:
-    return ve.save_cookies(body.text)
+    res = ve.save_cookies(body.text)
+    if not res.get("saved"):
+        raise HTTPException(400, res.get("error", "cookies file invalid"))
+    return res
 
 
 @app.delete("/api/cookies")

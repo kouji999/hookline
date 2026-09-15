@@ -1290,3 +1290,5 @@ input[type=range] { accent-color: var(--volt); width: 100%; }
   color: var(--text-dim);
   white-space: pre-wrap;
 }
+
+.cookies-state.bad { color: var(--danger); }
