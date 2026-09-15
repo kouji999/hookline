@@ -230,6 +230,51 @@ def fetch_transcript(video_id: str, preferred_langs: tuple[str, ...] = ("id", "e
         return None, "error"
 
 
+def fetch_words(video_id: str, preferred_langs: tuple[str, ...] = ("id", "en")) -> list[dict]:
+    """Per-word timings straight from YouTube's caption track (json3). Best-effort: [] on any
+    failure; the line-level transcript still drives everything else."""
+    api = YouTubeTranscriptApi()
+    try:
+        available = list(api.list(video_id))
+    except Exception:
+        return []
+
+    def score(t: object) -> int:
+        s = 0
+        if not getattr(t, "is_generated", True):
+            s += 10
+        lang = getattr(t, "language_code", "") or ""
+        if lang in preferred_langs:
+            s += 5 - preferred_langs.index(lang)
+        return s
+
+    best = max(available, key=score)
+    url = getattr(best, "_url", None)
+    if not url:
+        return []
+    try:
+        r = requests.get(url, params={"fmt": "json3"}, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code != 200:
+            return []
+        events = r.json().get("events", [])
+    except Exception:
+        return []
+    words: list[dict] = []
+    for ev in events:
+        segs = ev.get("segs") or []
+        t0 = float(ev.get("tStartMs", 0)) / 1000.0
+        last = t0
+        for s in segs:
+            txt = str(s.get("utf8", "")).strip()
+            if not txt:
+                continue
+            off = s.get("tOffsetMs")
+            t = (float(off) / 1000.0) if off is not None else last
+            words.append({"t": round(t, 3), "w": txt})
+            last = t
+    return words
+
+
 def format_transcript(segments: list[dict], cap: int = 20000) -> tuple[str, bool]:
     """Timestamped blocks merged to ~12s/200-char units; if over cap, sample 10
     evenly distributed windows so the model sees the WHOLE video, not just the start."""
@@ -384,17 +429,17 @@ def enrich_clip(c: dict, segments: list[dict], signal: list[dict] | None, estima
     c["subtitles"] = clip_subtitles(segments, c["start"], c["end"])
     win = window_segments(segments, c["start"], c["end"])
     dur = max(1.0, c["end"] - c["start"])
-    words = sum(len(str(s.get("text", "")).split()) for s in win)
-    density = words / dur
+    wcount = sum(len(str(s.get("text", "")).split()) for s in win)
+    density = wcount / dur
     fid = quote_fidelity(c.get("quote", ""), segments) if segments else 0.5
     filler = bool(FILLER_PAT.search(" ".join(str(s.get("text", "")) for s in win)))
-    c["words"] = words
+    c["word_count"] = wcount
     c["source_confidence"] = fid
     c["score"] = score_clip_against_signal(c, signal, estimates, total)
     value = 0.55 * c["score"] + 0.30 * fid + 0.15 * min(1.0, density / 3.0)
     if filler:
         value *= 0.5
-    if words < 12:
+    if wcount < 12:
         value *= 0.6
     c["value"] = round(min(1.0, value), 3)
     return c
@@ -729,10 +774,8 @@ async def final_cut(req: FinalCutRequest) -> dict:
                     "end": float(c.get("end", 0)),
                     "title": str(c.get("title", ""))[:80],
                     "quote": str(c.get("quote", ""))[:160],
-                    "subtitles": [
-                        {"start": float(s.get("start", 0)), "duration": float(s.get("duration", 2)), "text": str(s.get("text", ""))}
-                        for s in (c.get("subtitles") or [])[:80]
-                    ],
+                    "subtitles": _clean_subs(c.get("subtitles")),
+                    "words": _clean_words(c.get("words")),
                 }
             )
         except (TypeError, ValueError):
@@ -792,7 +835,8 @@ async def render_batch(req: RenderBatchRequest) -> dict:
                 "end": float(c["end"]),
                 "title": str(c.get("title", "clip"))[:80],
                 "quote": str(c.get("quote", "")),
-                "subtitles": c.get("subtitles") or [],
+                "subtitles": c.get("subtitles") if isinstance(c.get("subtitles"), list) else [],
+                "words": _clean_words(c.get("words")),
             })
         except Exception:
             continue
@@ -968,7 +1012,44 @@ def source_video(video_id: str):
     return FileResponse(src, media_type="video/mp4", filename=src.name)
 
 
+def _clean_words(raw) -> list[dict]:
+    """Sanitize per-word timings from any client payload shape (legacy data stored a count here)."""
+    out: list[dict] = []
+    for w in raw if isinstance(raw, list) else []:
+        if not isinstance(w, dict):
+            continue
+        try:
+            t = float(w.get("t", 0))
+        except (TypeError, ValueError):
+            continue
+        txt = str(w.get("w", ""))[:40].strip()
+        if txt:
+            out.append({"t": round(t, 3), "w": txt})
+        if len(out) >= 160:
+            break
+    return out
+
+
+def _clean_subs(raw) -> list[dict]:
+    out: list[dict] = []
+    for s in raw if isinstance(raw, list) else []:
+        if not isinstance(s, dict):
+            continue
+        try:
+            st = float(s.get("start", 0))
+            du = float(s.get("duration", 2))
+        except (TypeError, ValueError):
+            continue
+        txt = str(s.get("text", ""))[:240].strip()
+        if txt:
+            out.append({"start": st, "duration": du, "text": txt})
+        if len(out) >= 80:
+            break
+    return out
+
+
 CHUNK_SECONDS = 600
+
 
 
 def load_upload_meta(uid: str) -> dict:
@@ -1114,6 +1195,7 @@ async def analyze(req: AnalyzeRequest) -> StreamingResponse:
         yield await stage("meta", {"video_id": vid, "mock": is_mock, "uploaded": False}, 0.05)
         yield sse("title", title_data)
 
+        words: list[dict] = []
         if req.subtitles and req.subtitles.strip():
             segments = parse_manual_subtitles(req.subtitles)
             source = "manual"
@@ -1125,7 +1207,8 @@ async def analyze(req: AnalyzeRequest) -> StreamingResponse:
         else:
             pref = tuple(dict.fromkeys((req.language, "id", "en")))
             segments, source = await asyncio.to_thread(fetch_transcript, vid, pref)
-            yield await stage("stage", {"stage": "transcript", "status": "done", "source": source, "segments": len(segments or [])})
+            words = await asyncio.to_thread(fetch_words, vid, pref) if segments else []
+            yield await stage("stage", {"stage": "transcript", "status": "done", "source": source, "segments": len(segments or []), "words": len(words)})
 
         if not segments:
             yield sse("error", {"stage": "transcript", "message": "No transcript available for this video. Use manual subtitle paste or try another video."})
@@ -1150,30 +1233,59 @@ async def analyze(req: AnalyzeRequest) -> StreamingResponse:
             model_used = "sandbox"
             yield sse("stage", {"stage": "analyze", "status": "done", "model": "sandbox", "clips": len(clips)})
         else:
-            transcript, sampled = format_transcript(segments)
-            summary = signal_summary_text(signal, estimates, total)
-            prompt = build_analysis_prompt(transcript, req.duration, req.custom_prompt, summary, req.target_clip_count, total, sampled)
             chain = model_chain(effective_key, req.model)
             yield sse("stage", {"stage": "analyze", "status": "discovered", "models": chain[:6]})
+            summary = signal_summary_text(signal, estimates, total)
+            # Chunked: small payloads survive Gemini load spikes and pin timestamps to the
+            # window the model actually sees, instead of guessing across a 20-minute transcript.
+            windows: list[tuple[float, float, list[dict]]] = []
+            chunk = 720.0
+            w_start = 0.0
+            while w_start < total - 30:
+                w_end = min(total, w_start + chunk)
+                seg_w = [s for s in segments if float(s.get("start", 0)) < w_end and float(s.get("start", 0)) + float(s.get("duration", 2)) > w_start]
+                if len(seg_w) >= 3:
+                    windows.append((w_start, w_end, seg_w))
+                w_start = w_end
+            if len(windows) < 2:
+                transcript, sampled = format_transcript(segments)
+                windows = [(0.0, total, segments)]
+                sampled_note = sampled
             clips = []
             model_used = ""
             last_err = ""
-            for i, model in enumerate(chain):
-                yield await stage("stage", {"stage": "analyze", "status": "run", "model": model, "attempt": i + 1}, 0.1)
-                try:
-                    raw, model_used = await asyncio.to_thread(gemini_generate, effective_key, model, prompt)
-                    clips = parse_gemini_clips(raw)
-                    if clips:
+            for wi, (ws, we, seg_w) in enumerate(windows):
+                transcript, sampled = format_transcript(seg_w, cap=11000)
+                window_note = f"\nYou are analysing ONLY the window {ws:.0f}s to {we:.0f}s of a longer video. Timestamps must stay inside it." if len(windows) > 1 else ""
+                prompt = build_analysis_prompt(transcript, req.duration, req.custom_prompt, summary, max(2, round(req.target_clip_count * (we - ws) / total)), total, sampled) + window_note
+                for attempt_round in range(2):
+                    hit = False
+                    for i, model in enumerate(chain):
+                        yield await stage("stage", {"stage": "analyze", "status": "run", "model": model, "attempt": i + 1, "window": wi + 1, "windows": len(windows)}, 0.05)
+                        try:
+                            raw, model_used = await asyncio.to_thread(gemini_generate, effective_key, model, prompt)
+                            found = parse_gemini_clips(raw)
+                            found = [c for c in found if ws <= c["start"] < we]
+                            if found:
+                                clips.extend(found)
+                                hit = True
+                                break
+                        except Exception as e:
+                            last_err = f"{type(e).__name__}: {str(e)[:180]}"
+                            yield sse("stage", {"stage": "analyze", "status": "retry", "model": model, "error": last_err})
+                            if "503" in last_err or "UNAVAILABLE" in last_err.upper():
+                                await asyncio.sleep(2.5 if attempt_round == 0 else 6)
+                    if hit or attempt_round == 1:
                         break
-                except Exception as e:
-                    last_err = f"{type(e).__name__}: {str(e)[:180]}"
-                    yield sse("stage", {"stage": "analyze", "status": "retry", "model": model, "error": last_err})
             if not clips:
-                yield sse("error", {"stage": "analyze", "message": f"Gemini failed across fallback chain. {last_err}"})
+                yield sse("error", {"stage": "analyze", "message": f"Gemini failed across the fallback chain. {last_err}"})
                 return
             yield sse("stage", {"stage": "analyze", "status": "done", "model": model_used, "clips": len(clips)})
 
         clips = [enrich_clip(c, segments, signal, estimates, total) for c in clips]
+        if words:
+            for c in clips:
+                c["words"] = [w for w in words if c["start"] - 0.4 <= float(w["t"]) <= c["end"] + 0.35]
         clips = [c for c in clips if c["source_confidence"] >= 0.45]
         clips.sort(key=lambda c: (-c["value"], -c["score"]))
         del clips[req.target_clip_count:]

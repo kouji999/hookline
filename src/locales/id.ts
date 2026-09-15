@@ -117,6 +117,8 @@ const id: Record<string, string> = {
   'studio.order.chronological': 'urutan cerita',
   'studio.order.value': 'terbaik dulu',
   'studio.hooktitle': 'Bakar judul momen',
+  'studio.tighten': 'Potong dead air (padatkan)',
+  'studio.punch': 'Punch-in zoom di tiap cut',
   'final.rendering': 'merender segmen',
   'final.assembling': 'menyatukan segmen',
 }

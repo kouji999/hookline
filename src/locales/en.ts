@@ -118,6 +118,8 @@ const en: Record<string, string> = {
   'studio.order.chronological': 'story order',
   'studio.order.value': 'best first',
   'studio.hooktitle': 'Burn moment titles',
+  'studio.tighten': 'Cut dead air (tighten)',
+  'studio.punch': 'Punch-in zoom on cuts',
   'final.rendering': 'rendering segments',
   'final.assembling': 'stitching segments',
 }

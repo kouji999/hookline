@@ -340,3 +340,53 @@ def test_relative_subtitles_overlap_free():
     rel = ve.relative_subtitles(subs, 100.0, 8.0)
     assert len(rel) >= 1
     assert sum(1 for r in rel if r["start"] < 2.0) == 1
+
+
+def test_remap_captions_onto_tightened_timeline():
+    ranges = [(10.0, 14.0), (20.0, 28.0)]
+    subs = [
+        {"start": 11.0, "duration": 2.0, "text": "first kept"},
+        {"start": 16.0, "duration": 2.0, "text": "in dead air dropped"},
+        {"start": 21.0, "duration": 3.0, "text": "second kept"},
+    ]
+    out = ve.remap_captions(subs, ranges)
+    assert [o["text"] for o in out] == ["first kept", "second kept"]
+    assert out[0]["start"] == 1.0
+    assert out[1]["start"] == round(4.0 + 1.0, 3)
+
+
+def test_punch_filter_disabled_for_short_clips():
+    assert ve.punch_filter(1080, 1920, 2.0) == ""
+    f = ve.punch_filter(1080, 1920, 30.0)
+    assert "eval=frame" in f and "crop=1080:1920" in f and "setsar=1" in f
+
+
+def test_dead_air_no_silence_returns_full_window(tmp_path):
+    src = tmp_path / "a.mp4"
+    import subprocess
+    subprocess.run([ve.FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                    "-i", "sine=frequency=440:sample_rate=48000:duration=6", "-c:a", "aac", str(src)], check=True)
+    log: list[str] = []
+    assert ve.detect_dead_air(src, 0.0, 6.0, log) == [(0.0, 6.0)]
+
+
+def test_words_to_rel_events_real_timing_and_trim():
+    words = [{"t": 10.0, "w": "satu"}, {"t": 10.4, "w": "dua"}, {"t": 10.9, "w": "tiga"},
+             {"t": 15.0, "w": "di-dead-air"}, {"t": 20.5, "w": "empat"}]
+    ranges = [(9.5, 12.5), (19.5, 23.5)]
+    ev = ve.words_to_rel_events(words, ranges)
+    assert ev, "word events expected"
+    assert all("words" in e and e["words"] for e in ev)
+    assert ev[0]["start"] == 0.5
+    assert ev[0]["words"][0]["t"] == 0.0
+    assert ev[-1]["start"] >= 3.0
+    texts = [w["w"] for e in ev for w in e["words"]]
+    assert "di-dead-air" not in texts
+
+
+def test_clean_words_survives_legacy_number():
+    assert main._clean_words(169) == []
+    assert main._clean_words(None) == []
+    assert main._clean_words([{"t": 1.0, "w": "halo"}, {"bad": 1}, [1, 2]]) == [{"t": 1.0, "w": "halo"}]
+    assert main._clean_subs("nope") == []
+    assert main._clean_subs([{"start": "10", "duration": "2", "text": "x"}]) == [{"start": 10.0, "duration": 2.0, "text": "x"}]

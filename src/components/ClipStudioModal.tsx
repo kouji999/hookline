@@ -38,7 +38,7 @@ export function ClipStudioModal({
 }) {
   const { tr } = useI18n()
   const [opts, setOpts] = useState<RenderOpts>(() => loadStudio(mock))
-  const [finalOpts, setFinalOpts] = useState<FinalCutOpts>({ transition: 'fade', xfade: 0.4, order: 'chronological', hook_title: true })
+  const [finalOpts, setFinalOpts] = useState<FinalCutOpts>({ transition: 'fade', xfade: 0.4, order: 'chronological', hook_title: true, tighten: true, punch_in: true })
   const [sel, setSel] = useState<Set<number>>(() => new Set([initialIndex]))
   const [job, setJob] = useState<RenderProgress | null>(null)
   const [frame, setFrame] = useState<string | null>(null)
@@ -127,9 +127,9 @@ export function ClipStudioModal({
         return
       }
       setJob({ id: '', kind: 'batch', status: 'queued', total: list.length, done: 0, items: list.map((c) => ({ key: `${Math.trunc(c.start)}-${Math.trunc(c.end)}`, status: 'pending' as const, file: null })), zip: null, final: null, log: [] })
-      launch(startRenderBatch(videoId, list, opts))
+      launch(startRenderBatch(videoId, list, { ...opts, hook_title: finalOpts.hook_title, tighten: finalOpts.tighten, punch_in: finalOpts.punch_in }))
     },
-    [chosen, videoId, opts, launch, tr]
+    [chosen, videoId, opts, finalOpts, launch, tr]
   )
 
   const startFinal = useCallback(
@@ -268,6 +268,14 @@ export function ClipStudioModal({
               <label className="check">
                 <input type="checkbox" checked={finalOpts.hook_title} onChange={(e) => patchFinal({ hook_title: e.target.checked })} />
                 {tr('studio.hooktitle')}
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={finalOpts.tighten} onChange={(e) => patchFinal({ tighten: e.target.checked })} />
+                {tr('studio.tighten')}
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={finalOpts.punch_in} onChange={(e) => patchFinal({ punch_in: e.target.checked })} />
+                {tr('studio.punch')}
               </label>
               <div className="ctl">
                 <label className="field-label">{tr('studio.transition')}</label>

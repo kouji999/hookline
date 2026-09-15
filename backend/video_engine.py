@@ -389,11 +389,31 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if hook_text:
         lines.append(f"Dialogue: 1,{ts(0.30)},{ts(hook_dur)},Hook,,0,0,0,,{_ass_escape(hook_text)}")
     for seg in subs:
+        start = float(seg.get("start", 0))
+        dur = max(0.6, float(seg.get("duration", 2)))
+        wlist = seg.get("words")
+        if wlist:
+            # real per-word timings from the source caption track: the highlight IS the speech
+            seg_end = start + dur
+            for i in range(0, len(wlist), 4):
+                grp = wlist[i:i + 4]
+                gs = start + float(grp[0].get("t", 0))
+                nxt = wlist[i + 4] if i + 4 < len(wlist) else None
+                ge = start + (float(nxt.get("t", 0)) if nxt else min(seg_end, float(grp[-1].get("t", 0)) + float(grp[-1].get("d", 0.4))))
+                ge = min(ge, seg_end)
+                if ge - gs < 0.25:
+                    ge = gs + 0.25
+                parts = []
+                for j, wd in enumerate(grp):
+                    t0 = float(wd.get("t", 0))
+                    t1 = float(grp[j + 1].get("t", 0)) if j + 1 < len(grp) else (float(nxt.get("t", 0)) if nxt else t0 + float(wd.get("d", 0.4)))
+                    k = max(6, int((t1 - t0) * 100))
+                    parts.append(r"{\kf%d}%s" % (k, _ass_escape(str(wd.get("w", "")))))
+                lines.append(f"Dialogue: 0,{ts(gs)},{ts(ge)},Karaoke,,0,0,0,," + " ".join(parts))
+            continue
         words = str(seg.get("text", "")).strip().split()
         if not words:
             continue
-        start = float(seg.get("start", 0))
-        dur = max(0.6, float(seg.get("duration", 2)))
         # group words into chunks of max 4 for readability
         chunks = [words[i : i + 4] for i in range(0, len(words), 4)]
         chunk_dur = dur / len(chunks)
@@ -490,6 +510,130 @@ def relative_subtitles(subs: list[dict], start: float, dur: float) -> list[dict]
     return merge_overlapping_subs(rel)
 
 
+def detect_dead_air(src: Path, start: float, end: float, log: list[str]) -> list[tuple[float, float]]:
+    """Speech ranges inside [start, end]. Cuts pauses so the clip never idles.
+    Conservative: silence >= 0.55s under -32dBFS dropped, 0.15s pad kept."""
+    r = run([FFMPEG, "-hide_banner", "-nostats", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src),
+             "-af", "silencedetect=noise=-32dB:d=0.55", "-f", "null", "-"], timeout=300)
+    txt = (r.stderr or "") + (r.stdout or "")
+    sil: list[tuple[float, float]] = []
+    cur: float | None = None
+    for m in re.finditer(r"silence_(start|end):\s*([0-9.]+)", txt):
+        v = float(m.group(2))
+        if m.group(1) == "start":
+            cur = v
+        elif cur is not None:
+            sil.append((cur, v))
+            cur = None
+    if not sil:
+        return [(start, end)]
+    dur = end - start
+    pad = 0.15
+    bounds = [(0.0, sil[0][0])] + [(a[1], b[0]) for a, b in zip(sil, sil[1:])] + [(sil[-1][1], dur)]
+    keep: list[tuple[float, float]] = []
+    for gs, ge in bounds:
+        s = max(0.0, gs + pad)
+        e = min(dur, ge - pad)
+        if e - s >= 1.2:
+            keep.append((start + s, start + e))
+    if not keep:
+        return [(start, end)]
+    kept = sum(b - a for a, b in keep)
+    removed = dur - kept
+    if removed < 1.0 or (len(keep) == 1 and kept / dur > 0.92):
+        return [(start, end)]
+    log.append(f"tighten: {len(keep)} speech ranges, cut {removed:.1f}s dead air")
+    return keep
+
+
+def _range_offsets(ranges: list[tuple[float, float]]) -> list[float]:
+    offs, t = [], 0.0
+    for a, b in ranges:
+        offs.append(t)
+        t += b - a
+    return offs
+
+
+def words_to_rel_events(words: list[dict], ranges: list[tuple[float, float]], max_words: int = 4) -> list[dict]:
+    """Absolute per-word timings -> output-relative caption events on the (possibly tightened)
+    timeline. This is what makes the highlight track actual speech instead of a metronome."""
+    if not words:
+        return []
+    offs = _range_offsets(ranges)
+    mapped: list[tuple[float, str]] = []
+    for w in words:
+        try:
+            t = float(w.get("t", 0))
+        except (TypeError, ValueError):
+            continue
+        txt = str(w.get("w", "")).strip()
+        if not txt:
+            continue
+        for (a, b), base in zip(ranges, offs):
+            if a <= t <= b:
+                mapped.append((base + t - a, txt))
+                break
+    mapped.sort(key=lambda x: x[0])
+    if not mapped:
+        return []
+    out: list[list[tuple[float, str]]] = []
+    cur: list[tuple[float, str]] = []
+    for t, w in mapped:
+        if cur and (len(cur) >= max_words or t - cur[-1][0] > 1.4 or t - cur[0][0] > 2.6):
+            out.append(cur)
+            cur = []
+        cur.append((t, w))
+    if cur:
+        out.append(cur)
+    events = []
+    for gi, grp in enumerate(out):
+        st = grp[0][0]
+        nxt_start = out[gi + 1][0][0] if gi + 1 < len(out) else None
+        en = grp[-1][0] + max(0.35, (grp[-1][0] - grp[-2][0]) if len(grp) > 1 else 0.45)
+        if nxt_start is not None:
+            en = min(en, nxt_start)
+        if en - st < 0.3:
+            en = st + 0.3
+        events.append({
+            "start": round(st, 3),
+            "duration": round(max(0.4, en - st), 3),
+            "text": " ".join(w for _, w in grp),
+            "words": [{"w": w, "t": round(t - st, 3)} for t, w in grp],
+        })
+    return events
+
+
+def remap_captions(segs: list[dict], ranges: list[tuple[float, float]]) -> list[dict]:
+    """Absolute caption windows -> output-relative timeline of the tightened cut."""
+    out: list[dict] = []
+    for (a, b), base in zip(ranges, _range_offsets(ranges)):
+        for s in segs:
+            try:
+                ss, sd = float(s.get("start", 0)), float(s.get("duration", 2))
+            except (TypeError, ValueError):
+                continue
+            se = ss + sd
+            if se <= a or ss >= b:
+                continue
+            n_s, n_e = max(ss, a), min(se, b)
+            if n_e - n_s < 0.35:
+                continue
+            out.append({"start": round(base + (n_s - a), 3), "duration": round(n_e - n_s, 3), "text": str(s.get("text", ""))})
+    out.sort(key=lambda x: x["start"])
+    return merge_overlapping_subs(out)
+
+
+def punch_filter(out_w: int, out_h: int, dur: float, amount: float = 0.05) -> str:
+    """Slow push-in on the cut: grow the frame per-frame (scale eval=frame) and crop the
+    stable window out of it, so the shot breathes without the locked-off tripod feel."""
+    if dur <= 2.5:
+        return ""
+    return (
+        f"scale=w='iw*(1+{amount}*t/{dur:.2f})':h='ih*(1+{amount}*t/{dur:.2f})':eval=frame,"
+        f"crop={out_w}:{out_h},setsar=1"
+    )
+
+
 def render_clip(
     src: Path,
     video_id: str,
@@ -551,29 +695,60 @@ def render_clip(
         vf += f",split[t][g];[g]scale={out_w}:-2,vflip[gm];[t][gm]vstack"
 
     has_audio = run([FFPROBE, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", str(src)], timeout=60).stdout.strip() != ""
-    cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{start:.2f}", "-t", f"{dur:.2f}", "-i", str(src)]
+    ranges: list[tuple[float, float]] = [(start, end)]
+    if bool(opts.get("tighten", True)) and has_audio:
+        try:
+            ranges = detect_dead_air(src, start, end, log)
+        except Exception as e:
+            log.append(f"tighten skipped: {type(e).__name__}: {str(e)[:120]}")
+            ranges = [(start, end)]
+    total = sum(b - a for a, b in ranges)
+    multi = len(ranges) > 1
+
+    cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y"]
+    for a, b in ranges:
+        cmd += ["-ss", f"{a:.2f}", "-t", f"{b - a:.2f}", "-i", str(src)]
     if not has_audio:
-        # keep an explicit silent track so every output can be stitched and stays platform-safe
-        cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:channel_layouts=stereo"]
-    filters = vf
-    ass_used = False
+        # an explicit silent track keeps every output stitchable and platform-safe
+        cmd += ["-f", "lavfi", "-t", f"{total:.2f}", "-i", "anullsrc=r=48000:channel_layouts=stereo"]
+
     hook = title_text if bool(opts.get("hook_title", True)) else ""
-    if subs or hook:
-        # build word karaoke from clip subtitles (timestamps relative to clip)
-        rel_subs = relative_subtitles(subs, start, dur)
-        if rel_subs or hook:
-            ass_used = True
-            ass_path = write_ass(video_id, key, rel_subs, preset, out_h, subtitle_v, hook)
-            filters += f",ass={_ass_filter_arg(ass_path)}"
-    if opts.get("loudnorm", True):
-        # broadcast-ish short-form loudness: -14 LUFS integrated
-        audio_chain = "loudnorm=I=-14:TP=-1.5:LRA=11,aformat=sample_rates=48000:channel_layouts=stereo"
+    word_events = words_to_rel_events(clip.get("words") or [], ranges)
+    if word_events:
+        rel_subs = word_events
     else:
-        audio_chain = "aformat=sample_rates=48000:channel_layouts=stereo"
-    cmd += ["-vf", filters, "-af", audio_chain]
-    if not has_audio:
-        cmd += ["-map", "0:v:0", "-map", "1:a:0", "-shortest"]
-    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out_path)]
+        rel_subs = remap_captions(subs, ranges) if multi else relative_subtitles(subs, start, end - start)
+    ass_used = bool(rel_subs or hook)
+    ass_arg = ""
+    if ass_used:
+        ass_arg = "ass=" + _ass_filter_arg(write_ass(video_id, key, rel_subs, preset, out_h, subtitle_v, hook))
+
+    punch = punch_filter(out_w, out_h, total) if bool(opts.get("punch_in", True)) and layout != "pip" else ""
+    audio_tail = ("loudnorm=I=-14:TP=-1.5:LRA=11," if bool(opts.get("loudnorm", True)) else "") + "aformat=sample_rates=48000:channel_layouts=stereo"
+
+    if multi:
+        graph = []
+        for i in range(len(ranges)):
+            graph.append(f"[{i}:v]{vf},fps=30,setsar=1,format=yuv420p[v{i}]")
+            graph.append(f"[{i}:a]aresample=async=1:first_pts=0,atrim=0:{total:.2f}[a{i}]")
+        ins = "".join(f"[v{i}][a{i}]" for i in range(len(ranges)))
+        graph.append(f"{ins}concat=n={len(ranges)}:v=1:a=1[cv][ca]")
+        chain_parts = ([punch] if punch else []) + ([ass_arg] if ass_arg else [])
+        graph.append("[cv]" + ",".join(chain_parts) + "[vout]")
+        graph.append("[ca]" + audio_tail + "[aout]")
+        cmd += ["-filter_complex", ";".join(graph), "-map", "[vout]", "-map", "[aout]"]
+        filters = None
+    else:
+        filters = vf
+        if punch:
+            filters += "," + punch
+        if ass_arg:
+            filters += "," + ass_arg
+        cmd += ["-vf", filters, "-af", audio_tail]
+        if not has_audio:
+            cmd += ["-map", "0:v:0", "-map", "1:a:0", "-shortest"]
+    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-r", "30", "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(out_path)]
     run_cwd = BASE if ass_used else None
     if use_nvenc:
         # try nvenc first, fallback libx264
@@ -619,7 +794,7 @@ def _to_bool(v: Any) -> bool:
 
 def normalize_opts(opts: dict) -> dict:
     opts = dict(opts)
-    for k in ("sandbox", "nvenc", "cookies", "face_track"):
+    for k in ("sandbox", "nvenc", "cookies", "face_track", "tighten", "punch_in", "hook_title", "loudnorm"):
         if k in opts:
             opts[k] = _to_bool(opts[k])
     return opts

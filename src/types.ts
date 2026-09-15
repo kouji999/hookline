@@ -114,6 +114,8 @@ export interface RenderOpts {
   cookies: boolean
   sandbox: boolean
   hook_title?: boolean
+  tighten?: boolean
+  punch_in?: boolean
 }
 
 export interface FinalCutOpts {
@@ -121,6 +123,8 @@ export interface FinalCutOpts {
   xfade: number
   order: 'chronological' | 'value'
   hook_title: boolean
+  tighten: boolean
+  punch_in: boolean
 }
 
 export interface Capabilities {

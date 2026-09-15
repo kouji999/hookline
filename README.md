@@ -69,9 +69,20 @@ Frontend `http://localhost:5173` · Backend `http://localhost:8000` · Swagger `
 
 ### Workflow
 
-1. **Analyze** — paste a YouTube URL, optionally tell the AI what to look for, hit *Find viral moments*. The key lives server-side; the UI never asks for one. Toggle **Sandbox** for a full demo run with zero API calls.
-2. **Review** — click the heatmap to seek, scan ranked moments, copy timestamps as plain ranges, titled notes, or ready-made YouTube chapters.
-3. **Render** — open any moment in the Clip Studio, choose framing/caption preset, batch render, download the ZIP.
+1. **Analyze** — paste a YouTube URL (or switch to **Upload clip** and send your own video file), optionally tell the AI what to look for, hit *Find viral moments*. The key lives server-side; the UI never asks for one. Toggle **Sandbox** for a full demo run with zero API calls.
+2. **Review** — click the heatmap to seek, scan ranked moments (substance score, kind, caption count), copy timestamps as plain ranges, titled notes, or ready-made YouTube chapters.
+3. **Studio** — open any moment in the Clip Studio: pick framing/caption preset, batch render individual clips + ZIP, or press *Assemble finished video* to get **one ready-to-post vertical edit** of the selected moments (chronological or best-first).
+
+### The finished edit pipeline
+
+Each selected moment is rendered with:
+
+- **Word-level karaoke subtitles** — real per-word timings pulled from the source caption track (json3), highlight follows speech
+- **Dead-air trim** — silencedetect cuts pauses so the clip never idles; captions re-timed onto the tightened track
+- **Punch-in push** — slow per-frame zoom on the cut, no tripod stiffness
+- **Hook title** — the moment's takeaway burned top-center for the first 3 s
+- **Loudness normalize** — ffmpeg `loudnorm` to ≈ -14 LUFS / -1.5 dBTP, plus a silent track when the source has none so every cut stays stitchable
+- **Fade punctuation + concat** — segments normalized to one canvas/fps/audio layout, deterministic order
 4. **Revisit** — everything is stored locally: search, reload past analyses without burning quota.
 
 ## API
@@ -80,8 +91,10 @@ Frontend `http://localhost:5173` · Backend `http://localhost:8000` · Swagger `
 |---|---|
 | `GET /api/health` · `GET /api/capabilities` | status, render-engine detection |
 | `GET /api/video-title?video_id=` | oEmbed metadata |
-| `POST /api/analyze` | SSE analysis pipeline |
-| `POST /api/render-batch` · `GET /api/render-progress/{id}` | batch render + live queue |
+| `POST /api/analyze` | SSE analysis pipeline (YouTube URL or `upload_id`) |
+| `POST /api/upload` · `GET /api/uploads` · `DELETE /api/uploads/{id}` | local clip upload (multipart, 2 GB cap) |
+| `GET /api/source-video/{video_id}` | seekable preview of the local source (upload or download) |
+| `POST /api/render-batch` · `POST /api/final-cut` · `GET /api/render-progress/{id}` | batch render + one finished edit, live queue |
 | `GET /api/download-batch-zip/{id}` · `GET /api/download-rendered/{file}` | exports |
 | `GET /api/clip-frame?video_id=&t=` | real frame for framing preview |
 | `GET/POST/DELETE /api/cookies` | YouTube cookies manager |
@@ -97,6 +110,22 @@ Frontend `http://localhost:5173` · Backend `http://localhost:8000` · Swagger `
 | `npm test` | full suite (vitest + pytest) |
 | `npm run test:frontend` | 7 unit tests (time/format lib) |
 | `npm run test:backend` | 29 unit tests (parsing, ASS, scoring, cookies) |
+
+## Steering the AI (the prompt field)
+
+*"What should the AI look for?"* is a selection directive, not a vibe. A prompt that works:
+
+```
+audiens pemula yang mau belajar investasi. ambil HANYA momen dengan satu ide utuh:
+angka konkret, framework, atau langkah yang bisa langsung dipakai.
+utamakannya: definisi + contoh nyata, kesalahan umum + cara menghindarinya, data + interpretasi.
+buang: salam, basa-basi, promosi, opini tanpa isi.
+judul clip maksimal 6 kata, pakai bahasa indonesia.
+```
+
+Four parts: **audience → hard requirement → preferred shapes → rejects** (+ optional title/language rule). The model must return a verbatim quote from the transcript and timestamps inside the window it was given; anything it invents is dropped by the substance filter (`source_confidence`), so steering with concrete "must contain" rules beats adjectives like "kayu" or "viral".
+
+Clip length is set separately (15/30/60 s). For long podcasts the analyzer walks the video in ~12-minute windows, so timestamps stay honest even on hour-plus sources.
 
 ## Troubleshooting
 
