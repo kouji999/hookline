@@ -11,6 +11,9 @@ import type { CookiesState } from '../lib/render'
 import { IconClose, IconSpinner } from './Icons'
 
 const PRESET_LABELS: Record<string, string> = {
+  'mono-condensed': 'Mono Condensed',
+  'mono-heavy': 'Mono Heavy',
+  'mono-stone': 'Mono Stone',
   'viral-pop': 'Viral Pop',
   'beast-punch': 'Beast Punch',
   'cyber-violet': 'Cyber Violet',
@@ -263,6 +266,20 @@ export function ClipStudioModal({
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="ctl">
+              <label className="field-label">{tr('studio.grade')}</label>
+              <div className="seg-group tight">
+                <button type="button" className={opts.grade === 'noir' ? 'on' : ''} onClick={() => patch({ grade: 'noir' })} aria-pressed={opts.grade === 'noir'}>
+                  {tr('studio.grade.noir')}
+                </button>
+                <button type="button" className={opts.grade === 'fade' ? 'on' : ''} onClick={() => patch({ grade: 'fade' })} aria-pressed={opts.grade === 'fade'}>
+                  {tr('studio.grade.fade')}
+                </button>
+                <button type="button" className={opts.grade === 'natural' ? 'on' : ''} onClick={() => patch({ grade: 'natural' })} aria-pressed={opts.grade === 'natural'}>
+                  {tr('studio.grade.natural')}
+                </button>
+              </div>
             </div>
             <div className="ctl">
               <label className="field-label">

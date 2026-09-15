@@ -108,6 +108,7 @@ export interface RenderOpts {
   backdrop: Backdrop
   face_track: boolean
   preset: string
+  grade: 'noir' | 'fade' | 'natural'
   subtitle_v: number
   title: string
   nvenc: boolean

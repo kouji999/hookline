@@ -62,6 +62,9 @@ ASPECTS = {
 }
 
 PRESETS = {
+    "mono-condensed": {"primary": "&H00FFFFFF&", "secondary": "&H007E7E7E&", "outline": "&H00000000&", "font": "Bahnschrift SemiBold Condensed", "size": 64},
+    "mono-heavy": {"primary": "&H00FFFFFF&", "secondary": "&H007E7E7E&", "outline": "&H00000000&", "font": "Segoe UI Black", "size": 56},
+    "mono-stone": {"primary": "&H00F0F0F0&", "secondary": "&H00707070&", "outline": "&H00050505&", "font": "Arial Black", "size": 54},
     "viral-pop": {"primary": "&H00FFFFFF&", "secondary": "&H003CCBF2&", "outline": "&H00000000&", "font": "Arial", "size": 58},
     "beast-punch": {"primary": "&H00FFFFFF&", "secondary": "&H0053F53C&", "outline": "&H00000000&", "font": "Arial", "size": 62},
     "cyber-violet": {"primary": "&H00FFFFFF&", "secondary": "&H00F22EE2&", "outline": "&H00101010&", "font": "Arial", "size": 56},
@@ -652,6 +655,17 @@ def nvenc_available() -> bool:
     return NVENC_OK
 
 
+def grade_filter(grade: str) -> str:
+    """Color treatment applied before subtitles.
+    noir: crushed blacks, slightly desaturated, gentle vignette - the moody 'podcast film' look.
+    fade: lifted blacks low-contrast matte. natural: untouched."""
+    if grade == "noir":
+        return "eq=brightness=-0.03:contrast=1.12:saturation=0.55,curves=master='0/0 0.5/0.4 1/0.9',vignette=PI/4.5"
+    if grade == "fade":
+        return "eq=brightness=0.02:contrast=0.94:saturation=0.72,curves=master='0/0.06 1/0.94'"
+    return ""
+
+
 def render_clip(
     src: Path,
     video_id: str,
@@ -666,7 +680,7 @@ def render_clip(
     layout = opts.get("layout", "fullscreen")
     backdrop = opts.get("backdrop", "blur")
     face_track = bool(opts.get("face_track", False))
-    preset = opts.get("preset", "viral-pop")
+    preset = opts.get("preset", "mono-condensed")
     subtitle_v = int(opts.get("subtitle_v", 260))
     title_text = str(opts.get("title") or clip.get("title") or "")
     use_nvenc = bool(opts.get("nvenc", True)) and nvenc_available()
@@ -711,6 +725,9 @@ def render_clip(
         vf += f",split[base][cam];[cam]scale={out_w // 4}:-2[camS];[base][camS]overlay={out_w - out_w // 4 - 36}:36"
     elif layout == "split":
         vf += f",split[t][g];[g]scale={out_w}:-2,vflip[gm];[t][gm]vstack"
+    g = grade_filter(str(opts.get("grade", "noir")))
+    if g:
+        vf += "," + g
 
     has_audio = run([FFPROBE, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", str(src)], timeout=60).stdout.strip() != ""
     ranges: list[tuple[float, float]] = [(start, end)]
@@ -815,6 +832,9 @@ def normalize_opts(opts: dict) -> dict:
     for k in ("sandbox", "nvenc", "cookies", "face_track", "tighten", "punch_in", "hook_title", "loudnorm"):
         if k in opts:
             opts[k] = _to_bool(opts[k])
+    if "grade" in opts:
+        g = str(opts["grade"]).lower()
+        opts["grade"] = g if g in ("noir", "fade", "natural") else "noir"
     return opts
 
 

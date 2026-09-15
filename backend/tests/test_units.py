@@ -164,7 +164,8 @@ def test_mock_clips_ranges():
 
 def test_aspect_and_preset_tables():
     assert ve.ASPECTS["9:16"] == (1080, 1920)
-    assert len(ve.PRESETS) == 7
+    assert len(ve.PRESETS) == 10
+    assert "mono-condensed" in ve.PRESETS
     for p in ve.PRESETS.values():
         assert p["primary"].startswith("&H") and p["primary"].endswith("&")
         assert p["size"] >= 30
@@ -419,3 +420,19 @@ def test_validate_cookies_and_header_autofix(tmp_path, monkeypatch):
     # download_source ignores a broken cookie file instead of poisoning every job
     (tmp_path / "cookies.txt").write_text("junk-no-tabs\n", encoding="utf-8")
     assert ve.cookies_are_valid() is False
+
+
+def test_grade_filter_and_mono_presets():
+    assert ve.grade_filter("noir").startswith("eq=")
+    assert "vignette" in ve.grade_filter("noir")
+    assert ve.grade_filter("natural") == ""
+    assert ve.grade_filter("fade") != ve.grade_filter("noir")
+    for name in ("mono-condensed", "mono-heavy", "mono-stone"):
+        p = ve.PRESETS[name]
+        # black-and-white: BGR channels equal (no chroma); ASS layout &HBBGGRR+AA
+        for color in (p["primary"], p["secondary"]):
+            bgr = color[4:10]
+            assert bgr[0:2] == bgr[2:4] == bgr[4:6], color
+    assert ve.normalize_opts({"grade": "NOIR"})["grade"] == "noir"
+    assert ve.normalize_opts({"grade": "garbage"})["grade"] == "noir"
+    assert ve.normalize_opts({"grade": "fade"})["grade"] == "fade"

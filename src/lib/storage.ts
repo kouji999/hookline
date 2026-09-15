@@ -71,7 +71,7 @@ export function saveCfg(c: { duration: string; clipCount: number; showPlayer: bo
   }
 }
 
-const K_STUDIO = 'hookline.studio.v1'
+const K_STUDIO = 'hookline.studio.v2'
 
 export function loadStudio(sandboxDefault: boolean): RenderOpts {
   const fallback: RenderOpts = {
@@ -79,7 +79,8 @@ export function loadStudio(sandboxDefault: boolean): RenderOpts {
     layout: 'fullscreen',
     backdrop: 'blur',
     face_track: false,
-    preset: 'viral-pop',
+    preset: 'mono-condensed',
+    grade: 'noir',
     subtitle_v: 260,
     title: '',
     nvenc: true,
