@@ -117,6 +117,7 @@ export interface RenderOpts {
   hook_title?: boolean
   tighten?: boolean
   punch_in?: boolean
+  asr?: boolean
 }
 
 export interface FinalCutOpts {
@@ -126,6 +127,7 @@ export interface FinalCutOpts {
   hook_title: boolean
   tighten: boolean
   punch_in: boolean
+  asr: boolean
 }
 
 export interface Capabilities {

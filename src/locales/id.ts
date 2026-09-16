@@ -124,6 +124,7 @@ const id: Record<string, string> = {
   'studio.hooktitle': 'Bakar judul momen',
   'studio.tighten': 'Potong dead air (padatkan)',
   'studio.punch': 'Punch-in zoom di tiap cut',
+  'studio.asr': 'Re-align subtitle dari audio (akurat per kata)',
   'final.rendering': 'merender segmen',
   'final.assembling': 'menyatukan segmen',
 }

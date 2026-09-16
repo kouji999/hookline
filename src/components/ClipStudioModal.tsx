@@ -42,7 +42,7 @@ export function ClipStudioModal({
 }) {
   const { tr } = useI18n()
   const [opts, setOpts] = useState<RenderOpts>(() => loadStudio(mock))
-  const [finalOpts, setFinalOpts] = useState<FinalCutOpts>({ transition: 'fade', xfade: 0.4, order: 'chronological', hook_title: true, tighten: true, punch_in: true })
+  const [finalOpts, setFinalOpts] = useState<FinalCutOpts>({ transition: 'fade', xfade: 0.4, order: 'chronological', hook_title: true, tighten: true, punch_in: true, asr: true })
   const [sel, setSel] = useState<Set<number>>(() => new Set([initialIndex]))
   const [job, setJob] = useState<RenderProgress | null>(null)
   const [frame, setFrame] = useState<string | null>(null)
@@ -131,7 +131,7 @@ export function ClipStudioModal({
         return
       }
       setJob({ id: '', kind: 'batch', status: 'queued', total: list.length, done: 0, items: list.map((c) => ({ key: `${Math.trunc(c.start)}-${Math.trunc(c.end)}`, status: 'pending' as const, file: null })), zip: null, final: null, log: [] })
-      launch(startRenderBatch(videoId, list, { ...opts, hook_title: finalOpts.hook_title, tighten: finalOpts.tighten, punch_in: finalOpts.punch_in }))
+      launch(startRenderBatch(videoId, list, { ...opts, hook_title: finalOpts.hook_title, tighten: finalOpts.tighten, punch_in: finalOpts.punch_in, asr: finalOpts.asr }))
     },
     [chosen, videoId, opts, finalOpts, launch, tr]
   )
@@ -299,6 +299,10 @@ export function ClipStudioModal({
               <label className="check">
                 <input type="checkbox" checked={finalOpts.punch_in} onChange={(e) => patchFinal({ punch_in: e.target.checked })} />
                 {tr('studio.punch')}
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={finalOpts.asr} onChange={(e) => patchFinal({ asr: e.target.checked })} />
+                {tr('studio.asr')}
               </label>
               <div className="ctl">
                 <label className="field-label">{tr('studio.transition')}</label>

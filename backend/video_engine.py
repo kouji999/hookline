@@ -406,7 +406,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if wlist:
             # real per-word timings from the source caption track: the highlight IS the speech
             seg_end = start + dur
-            for i in range(0, len(wlist), 4):
+            for i in range(0, len(wlist), 3):
                 grp = wlist[i:i + 4]
                 gs = start + float(grp[0].get("t", 0))
                 nxt = wlist[i + 4] if i + 4 < len(wlist) else None
@@ -426,7 +426,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if not words:
             continue
         # group words into chunks of max 4 for readability
-        chunks = [words[i : i + 4] for i in range(0, len(words), 4)]
+        chunks = [words[i : i + 3] for i in range(0, len(words), 3)]
         chunk_dur = dur / len(chunks)
         for ci, chunk in enumerate(chunks):
             cs = start + ci * chunk_dur
@@ -565,7 +565,7 @@ def _range_offsets(ranges: list[tuple[float, float]]) -> list[float]:
     return offs
 
 
-def words_to_rel_events(words: list[dict], ranges: list[tuple[float, float]], max_words: int = 4) -> list[dict]:
+def words_to_rel_events(words: list[dict], ranges: list[tuple[float, float]], max_words: int = 3) -> list[dict]:
     """Absolute per-word timings -> output-relative caption events on the (possibly tightened)
     timeline. This is what makes the highlight track actual speech instead of a metronome."""
     if not words:
@@ -666,6 +666,64 @@ def grade_filter(grade: str) -> str:
     return ""
 
 
+_ASR_MODEL: dict[str, Any] = {}
+
+
+def _asr_model(size: str):
+    if size not in _ASR_MODEL:
+        from faster_whisper import WhisperModel
+
+        _ASR_MODEL[size] = WhisperModel(size, device="cpu", compute_type="int8")
+    return _ASR_MODEL[size]
+
+
+def words_are_distinct(words: list[dict]) -> bool:
+    """True when the timing data actually moves per word. YouTube's json3 tracks often collapse
+    several words onto one timestamp - that reads as a jump, not as sync."""
+    if len(words) < 6:
+        return False
+    ts = [float(w.get("t", 0)) for w in words]
+    uniq = len({round(t, 2) for t in ts})
+    return uniq / len(ts) > 0.75
+
+
+def asr_words(src: Path, start: float, end: float, log: list[str] | None = None, model_size: str = "base", language: str | None = None) -> list[dict]:
+    """Word-level timestamps from the ACTUAL audio (faster-whisper, CPU int8).
+    This is what makes captions track speech instead of riding a metronome."""
+    lg = log if log is not None else []
+    cache = TEMP / f"asr_{src.stem}_{int(start)}-{int(end)}_{model_size}.json"
+    if cache.exists():
+        try:
+            return json.loads(cache.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+    wav = TEMP / f"asr_{src.stem}_{int(start)}-{int(end)}.wav"
+    r = run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}",
+             "-i", str(src), "-ac", "1", "-ar", "16000", "-vn", str(wav)], timeout=300)
+    if r.returncode != 0 or not wav.exists():
+        lg.append("asr: audio extract failed, captions fall back to line timing")
+        return []
+    try:
+        model = _asr_model(model_size)
+        segs, _info = model.transcribe(str(wav), word_timestamps=True, vad_filter=True, language=language, beam_size=1)
+        words: list[dict] = []
+        for s in segs:
+            for w in s.words or []:
+                txt = str(w.word).strip()
+                if txt:
+                    words.append({"t": round(start + float(w.start), 3), "w": txt})
+        wav.unlink(missing_ok=True)
+        if words:
+            cache.write_text(json.dumps(words, ensure_ascii=False), encoding="utf-8")
+            lg.append(f"asr: {len(words)} word marks aligned ({model_size})")
+            return words
+        lg.append("asr: no speech detected")
+    except Exception as e:
+        lg.append(f"asr failed ({type(e).__name__}: {str(e)[:120]}), falling back to caption timing")
+        wav.unlink(missing_ok=True)
+    return []
+
+
 def render_clip(
     src: Path,
     video_id: str,
@@ -748,10 +806,15 @@ def render_clip(
         cmd += ["-f", "lavfi", "-t", f"{total:.2f}", "-i", "anullsrc=r=48000:channel_layouts=stereo"]
 
     hook = title_text if bool(opts.get("hook_title", True)) else ""
-    word_events = words_to_rel_events(clip.get("words") or [], ranges)
-    if word_events:
-        rel_subs = word_events
-    else:
+    yt_words = clip.get("words") if isinstance(clip.get("words"), list) else []
+    rel_subs: list[dict] = []
+    if has_audio and bool(opts.get("asr", True)):
+        asr = asr_words(src, start, end, log, language=opts.get("asr_lang") or None)
+        if asr:
+            rel_subs = words_to_rel_events(asr, ranges)
+    if not rel_subs and words_are_distinct(yt_words or []):
+        rel_subs = words_to_rel_events(list(yt_words or []), ranges)
+    if not rel_subs:
         rel_subs = remap_captions(subs, ranges) if multi else relative_subtitles(subs, start, end - start)
     ass_used = bool(rel_subs or hook)
     ass_arg = ""
@@ -829,7 +892,7 @@ def _to_bool(v: Any) -> bool:
 
 def normalize_opts(opts: dict) -> dict:
     opts = dict(opts)
-    for k in ("sandbox", "nvenc", "cookies", "face_track", "tighten", "punch_in", "hook_title", "loudnorm"):
+    for k in ("sandbox", "nvenc", "cookies", "face_track", "tighten", "punch_in", "hook_title", "loudnorm", "asr"):
         if k in opts:
             opts[k] = _to_bool(opts[k])
     if "grade" in opts:

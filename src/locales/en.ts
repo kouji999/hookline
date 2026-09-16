@@ -125,6 +125,7 @@ const en: Record<string, string> = {
   'studio.hooktitle': 'Burn moment titles',
   'studio.tighten': 'Cut dead air (tighten)',
   'studio.punch': 'Punch-in zoom on cuts',
+  'studio.asr': 'Re-align captions from audio (word-accurate)',
   'final.rendering': 'rendering segments',
   'final.assembling': 'stitching segments',
 }

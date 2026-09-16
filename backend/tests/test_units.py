@@ -436,3 +436,12 @@ def test_grade_filter_and_mono_presets():
     assert ve.normalize_opts({"grade": "NOIR"})["grade"] == "noir"
     assert ve.normalize_opts({"grade": "garbage"})["grade"] == "noir"
     assert ve.normalize_opts({"grade": "fade"})["grade"] == "fade"
+
+
+def test_words_are_distinct_detects_collapsed_timings():
+    good = [{"t": i * 0.4, "w": f" kata{i}"} for i in range(12)]
+    assert ve.words_are_distinct(good) is True
+    collapsed = [{"t": 5.0, "w": "a"}, {"t": 5.0, "w": "b"}, {"t": 5.0, "w": "c"}, {"t": 5.0, "w": "d"}, {"t": 5.0, "w": "e"}, {"t": 9.0, "w": "f"}]
+    assert ve.words_are_distinct(collapsed) is False
+    assert ve.words_are_distinct([]) is False
+    assert ve.words_are_distinct([{"t": 1, "w": "x"}, {"t": 2, "w": "y"}]) is False
