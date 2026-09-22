@@ -445,3 +445,22 @@ def test_words_are_distinct_detects_collapsed_timings():
     assert ve.words_are_distinct(collapsed) is False
     assert ve.words_are_distinct([]) is False
     assert ve.words_are_distinct([{"t": 1, "w": "x"}, {"t": 2, "w": "y"}]) is False
+
+
+def test_format_hook_title_wraps_and_shrinks():
+    assert ve.format_hook_title("") == []
+    assert ve.format_hook_title("Siklus Kekayaan Pindah ke Teknologi Baru") == ["Siklus Kekayaan Pindah ke", "Teknologi Baru"]
+    # never overflows the line budget; long tails collapse with ellipsis
+    long = format_hook = ve.format_hook_title("Judul Sangat Panjang Yang Terus Bergulir Tanpa Henti Sampai Jauh Sekali", max_line=26, max_lines=2)
+    assert len(long) == 2 and all(len(l) <= 26 for l in long)
+    assert ve.hook_size_factor(["pendek"], 67) == 67
+    assert ve.hook_size_factor(["ini panjang sekali dua puluh"], 67) < 67
+    # build_ass keeps the banner inside margins with a legible box
+    ass = ve.build_ass([{"start": 0.0, "duration": 2.0, "text": "kata kata kata"}], "mono-condensed", 1920, 260, hook="Siklus Kekayaan Pindah ke Teknologi Baru")
+    assert "WrapStyle: 2" in ass
+    hook_line = [l for l in ass.splitlines() if ",Hook," in l][0]
+    assert chr(92) + "N" in hook_line and "Style: Hook" in ass
+    style = [l for l in ass.splitlines() if l.startswith("Style: Hook")][0]
+    fields = style.split(",")
+    assert fields[15] == "3"  # BorderStyle box
+    assert int(fields[20]) >= 70 and int(fields[21]) >= 70  # side margins

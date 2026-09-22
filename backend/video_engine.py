@@ -361,18 +361,61 @@ def crop_filter(pts: list[tuple[float, float]], src_w: int, crop_w: int) -> str:
 # ASS karaoke captions
 
 
+def format_hook_title(text: str, max_line: int = 26, max_lines: int = 2) -> list[str]:
+    """Pre-wrap the top title so it NEVER runs off frame. Smart word wrap,
+    overflow collapses to the last line with an ellipsis."""
+    words = re.sub(r"\s+", " ", str(text or "")).strip().split()
+    if not words:
+        return []
+    lines: list[str] = []
+    cur = ""
+    for w in words:
+        cand = f"{cur} {w}".strip()
+        if cur and len(cand) > max_line:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = cand
+    if cur:
+        lines.append(cur)
+    if len(lines) > max_lines:
+        rest = " ".join(lines[max_lines - 1 :])
+        cut = rest[: max_line - 1]
+        if len(rest) > len(cut):
+            cut = cut.rsplit(" ", 1)[0] if " " in cut else cut[: max_line - 2]
+        lines = lines[: max_lines - 1] + [cut.strip() + "…"]
+    return [l for l in lines if l]
+
+
+def hook_size_factor(lines: list[str], base_size: int) -> int:
+    """Shrink the banner when the longest line is long, so it stays inside the margins."""
+    if not lines:
+        return base_size
+    longest = max(len(l) for l in lines)
+    if longest <= 16:
+        return base_size
+    if longest <= 20:
+        return int(base_size * 0.93)
+    if longest <= 24:
+        return int(base_size * 0.85)
+    return int(base_size * 0.76)
+
+
 def _ass_color(hex_bgr: str) -> str:
     return hex_bgr
 
 
-def build_ass(subs: list[dict], preset: str, video_h: int, margin_v: int, hook: str = "", hook_dur: float = 3.2) -> str:
+def build_ass(subs: list[dict], preset: str, video_h: int, margin_v: int, hook: str = "", hook_dur: float = 3.6) -> str:
     p = PRESETS.get(preset, PRESETS["viral-pop"])
     primary = _ass_color(p["primary"])
     secondary = _ass_color(p["secondary"])
     outline = _ass_color(p["outline"])
     fontsize = max(30, int(p["size"] * video_h / 1920))
-    hooksize = max(34, int(fontsize * 1.12))
-    hook_margin = max(90, int(video_h * 0.075))
+    hook_lines = format_hook_title(hook)
+    hooksize = max(30, hook_size_factor(hook_lines, int(fontsize * 1.05)))
+    # safe-area margins: top banner sits below the phone notch zone, captions above the UI zone
+    hook_margin = max(150, int(video_h * 0.11))
+    side = max(70, int(1080 * 0.085))
     header = f"""[Script Info]
 Title: hookline karaoke
 ScriptType: v4.00+
@@ -383,8 +426,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Karaoke,{p['font']},{fontsize},{primary},{secondary},{outline},&H96000000&,1,0,0,0,100,100,0,0,1,3,1,2,60,60,{margin_v},1
-Style: Hook,{p['font']},{hooksize},{primary},{secondary},{outline},&H96000000&,1,0,0,0,100,100,0,0,1,3,2,8,60,60,{hook_margin},1
+Style: Karaoke,{p['font']},{fontsize},{primary},{secondary},{outline},&H96000000&,1,0,0,0,100,100,0,0,1,4,2,2,{side},{side},{margin_v},1
+Style: Hook,{p['font']},{hooksize},{primary},&H00000000&,&H00000000&,&HCC000000&,1,0,0,0,100,100,1.5,0,3,0,0,8,{side},{side},{hook_margin},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -396,9 +439,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return f"{h}:{m:02d}:{s:05.2f}"
 
     lines = []
-    hook_text = re.sub(r"\s+", " ", str(hook or "")).strip()
-    if hook_text:
-        lines.append(f"Dialogue: 1,{ts(0.30)},{ts(hook_dur)},Hook,,0,0,0,,{_ass_escape(hook_text)}")
+    if hook_lines:
+        text = "\\N".join(_ass_escape(l) for l in hook_lines)
+        lines.append(f"Dialogue: 1,{ts(0.25)},{ts(hook_dur)},Hook,,0,0,0,,{text}")
     for seg in subs:
         start = float(seg.get("start", 0))
         dur = max(0.6, float(seg.get("duration", 2)))
@@ -407,9 +450,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # real per-word timings from the source caption track: the highlight IS the speech
             seg_end = start + dur
             for i in range(0, len(wlist), 3):
-                grp = wlist[i:i + 4]
+                grp = wlist[i:i + 3]
                 gs = start + float(grp[0].get("t", 0))
-                nxt = wlist[i + 4] if i + 4 < len(wlist) else None
+                nxt = wlist[i + 3] if i + 3 < len(wlist) else None
                 ge = start + (float(nxt.get("t", 0)) if nxt else min(seg_end, float(grp[-1].get("t", 0)) + float(grp[-1].get("d", 0.4))))
                 ge = min(ge, seg_end)
                 if ge - gs < 0.25:
